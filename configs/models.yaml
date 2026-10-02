@@ -3,9 +3,9 @@
 # 国内网络：加 --source modelscope 或 --source hf-mirror（脚本会按顺序自动回退）
 #
 # 分组：
-#   core      必装：H3 视频（含对白）、图像（可商用）、超分、配乐、补帧                 ≈ 135 GB
-#   fast      预演加速：FastH3 8 步、H3 Turbo LoRA、Qwen Lightning                          ≈ 25 GB
-#   lipsync   兜底口型：InfiniteTalk（Wan2.1 I2V 480p + 补丁 + 中文 wav2vec2）             ≈ 27 GB
+#   core      必装：H3 视频（含对白）、图像（可商用）、超分、配乐、补帧                 ≈ 129 GB
+#   fast      预演加速：FastH3 8 步、H3 Turbo LoRA、Qwen Lightning                          ≈ 28 GB
+#   lipsync   兜底口型：InfiniteTalk（Wan2.1 I2V 480p + 补丁 + 中文 wav2vec2）             ≈ 28 GB
 #   animate   真人表演迁移：Wan Animate 2（蒸馏）                                           ≈ 23 GB
 #   qwen21    Qwen Image 2.1（画质更强、16 张参考，但仅限非商用 Qwen Research License）    ≈ 34 GB
 #   control   H3 Fun ControlNet（姿态/深度控制）+ SDPose                                    ≈ 4 GB
@@ -115,7 +115,7 @@ files:
   - {group: control, dir: diffusion_models, file: rt_detr_v4-x-hgnet_fp16.safetensors, size_gb: 0.12,
      url: https://huggingface.co/Comfy-Org/SDPose/resolve/main/diffusion_models/rt_detr_v4-x-hgnet_fp16.safetensors}
 
-# 音频服务（不放进 ComfyUI/models，由 scripts/setup_audio 下载到各自目录）
+# 音频服务（不放进 ComfyUI/models，由 install/*/install.* 下载到各自目录）
 audio_models:
   indextts: {repo: IndexTeam/IndexTTS-2.5, local_dir: index-tts/checkpoints, license: bilibili Model Use License}
   voicedesign: {repo: Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign, license: Apache-2.0}

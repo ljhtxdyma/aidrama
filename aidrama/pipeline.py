@@ -292,7 +292,7 @@ class Pipeline:
     def plan(self, ep_id: str, quiet: bool = False) -> list[Segment]:
         ep = self.project.episode(ep_id)
         segs = plan_segments(self.project, ep, self.cfg)
-        limit = 15.0
+        limit = min(float(self.cfg["video"].get("max_seconds", 15.0)), 15.0)
         too_long = [s for s in segs if s.planned > limit + 1e-6]
         if too_long:
             smap = self.project.shot_map(ep)

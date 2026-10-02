@@ -20,6 +20,7 @@ llm:
   api_key: ""
   temperature: 0.8
   max_tokens: 16384
+  timeout: 600                        # 单次请求超时（秒）；本地大模型写长分镜可能较慢
   unload: auto                        # auto：Ollama 在 ComfyUI 阶段前用 keep_alive=0 卸载；none：不卸载
   extra: {}
 
@@ -37,6 +38,7 @@ image:
   width: 896                          # 关键帧 4:7（与 H3 竖屏画布 768x1344 同比例），约 1.4MP（Qwen 2512/2511 的训练尺寸在 1~1.5MP）
   height: 1568
   steps: 25
+  engine: qwen2511                    # qwen2511（默认，Apache-2.0）| qwen21（Qwen-Image 2.1，非商用许可）
   sheet_width: 1056                   # 定妆照（Qwen-Image-2512 官方 2:3 原生尺寸）；三视图设定图固定 1344x896
   sheet_height: 1584
   enhance: false                      # 是否启用 Qwen Image 2.1 官方提示词扩写模型（额外 8.8GB）
@@ -49,7 +51,9 @@ video:
   dialogue_engine: ref2va_audio       # ref2va_audio（默认：TTS 音频作为 <Audio 1> 驱动口型）| native（让 H3 自己说）
   anchor_dialogue_audio: false        # 额外用 MiniMaxH3AddGuide 把对白音频钉在时间轴上（实验）
   ref_image_size: match               # match | max（max 锁脸更强但更慢）
-  max_seconds: 15.0
+  max_seconds: 15.0                   # 单段生成上限（H3 训练范围约 5~15 秒，超过会报错让你拆镜）
+  max_segment_seconds: 12.0           # 同场连续镜头合并成一段时的时长上限
+  max_cuts_per_segment: 4             # 一段最多几个镜头（切点越多，越难全部对上）
 
 upscale:
   enabled: true

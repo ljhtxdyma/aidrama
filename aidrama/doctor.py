@@ -40,7 +40,7 @@ def doctor(project: str | None = None, comfy_url: str | None = None) -> bool:
             vram = d.get("vram_total", 0) / 1024**3
             _ok(vram > 0, f"{d.get('name')}  显存 {vram:.1f} GB")
             if "5090" not in d.get("name", "") and vram < 30:
-                print("    提示：本工作流按 RTX 5090 32GB 调优，显存更小的卡请用 balanced/draft 预设或更低精度权重")
+                print("    提示：本工作流按 RTX 5090 32GB 调优；更小显存的卡未验证（balanced 与 quality 分辨率相同，只有 draft 更省显存）")
         ver = sysi.get("comfyui_version", "0")
         try:
             major = tuple(int(x) for x in ver.split(".")[:2])

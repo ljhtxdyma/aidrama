@@ -86,7 +86,7 @@ def plan_segments(project: Project, ep: Episode, cfg: dict) -> list[Segment]:
         has_dialogue = any(sh.dialogue for sh in shots)
         if seg.engine != "wan_animate" and len(shots) == 1 and (not has_dialogue or shots[0].method in ("flf2v", "t2v", "continue")):
             seg.engine = "h3_fl2va"
-        seg.gen_seconds = round(min(max(seg.planned, 5.0), 15.0), 3)   # H3 训练时长约 124~362 帧（5.1~15 秒）
+        seg.gen_seconds = round(min(max(seg.planned, 5.0), float(vcfg.get("max_seconds", 15.0)), 15.0), 3)   # H3 训练时长约 124~362 帧（5.1~15 秒）
     return segs
 
 

@@ -130,7 +130,7 @@ class Segment(BaseModel):
     shots: list[str]                     # shot id 列表（按顺序）
     engine: Literal["h3_ref2va", "h3_fl2va", "wan_animate"] = "h3_ref2va"
     planned: float = 0.0                 # 规划总时长（成片里用的长度）
-    gen_seconds: float = 0.0             # 送给模型的时长（≥4s）
+    gen_seconds: float = 0.0             # 送给模型的时长（≥5s，H3 训练时长范围）
     cut_times: list[float] = Field(default_factory=list)   # 每个镜头在段内的起点
     dialogue_track: Optional[str] = None
     refs: list[RefRecord] = Field(default_factory=list)

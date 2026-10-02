@@ -13,7 +13,7 @@
 ## 0. 每次开工前
 
 ```bash
-bash install/linux/start_all.sh            # Windows：install\windows\start_all.ps1
+bash install/linux/start_all.sh            # Windows：powershell -ExecutionPolicy Bypass -File install\windows\start_all.ps1
 ad doctor                                  # 全部打勾再开始
 ```
 
@@ -46,7 +46,7 @@ LLM 按要求生成分场分镜，写回 `project.yaml` 的 `episodes[].scenes[]
 **人工检查：**
 
 - 每个镜头只做**一件事**；有对白的镜头里，**只有说话的人张嘴**，听的人列在 `characters` 里即可。
-- 单句台词在 20 个字以内。长台词要拆成多句，或拆到多个镜头里。
+- 单句台词不超过 16 个字，一个镜头最多 2 句。长台词要拆成多句，或拆到多个镜头里。
 - 多音字可以直接在台词里标读音，例如 `银<行|HANG2>`。标注只影响配音，字幕和画面提示词里会自动去掉。
 - 景别要有变化（远—中—近—特写），避免全集都是正面中景。
 - 特殊镜头在 `method` 里指定：
@@ -56,7 +56,7 @@ LLM 按要求生成分场分镜，写回 `project.yaml` 的 `episodes[].scenes[]
 | `auto`（默认） | 绝大多数镜头 | 同场连续镜头合成一个 H3 Ref2VA 段；单镜头无对白用 H3 FL2VA |
 | `flf2v` | 需要精确落幅的镜头（转身、走到某处停下） | 首帧 + 尾帧两张关键帧，H3 FL2VA |
 | `t2v` | 空镜、氛围镜头 | 不出关键帧，纯文生 |
-| `continue` | 长镜头接续 | 用上一段所选视频的最后一帧当首帧 |
+| `continue` | 长镜头接续 | 用上一段所选条目在成片里用到的最后一帧（按 planned 时长取，不是文件最后一帧）当首帧 |
 | `animate` | 打戏、复杂走位、需要真人表演 | Wan Animate 2，用你拍的驱动视频（见第 11 节） |
 
 - 转场写在 `transition`（`cut`/`fade`/`dissolve`/`flash`）。转场不是 `cut` 的地方，后面的镜头会另起一个生成段。
@@ -123,7 +123,7 @@ ad plan projects/myshow ep01
 
 ```
 [plan] ep01_g01 h3_ref2va  3 镜 10.70s（生成 10.70s）: s01_01, s01_02, s01_03
-[plan] ep01_g03 h3_fl2va   1 镜  3.00s（生成 4.00s）: s02_01
+[plan] ep01_g03 h3_fl2va   1 镜  3.00s（生成 5.00s）: s02_01
 ```
 
 想调整分段，可以改镜头时长或转场，或者把某个镜头的 `method` 改成 `flf2v`/`t2v`，让它单独成段。
@@ -142,7 +142,7 @@ ad keyframes projects/myshow ep01
 
 - 产物在 `episodes/ep01/keyframes/<镜头>.png`。
 - 模型是 Qwen-Image-Edit-2511 多参考编辑，最多 3 张参考图：先放出场角色的三视图设定图，剩下的名额给场景空景图。提示词里用 “the woman from Picture 1” 指代角色。
-- 关键帧之后会成为 H3 每个切点的锚点：既作为参考图，也会被 AddGuide 钉在切点帧上。
+- 关键帧是 H3 的画面锚点：FL2VA 段把它当首帧；Ref2VA 段里每张关键帧都作为参考图 `<Picture N>`，从第 2 个镜头起还会用 AddGuide 钉在切点帧上。
 
 **人工检查（第二重要的检查点）：** 逐张看构图、站位、脸、服装、道具和手。**关键帧不对，视频一定不对。**
 
@@ -169,7 +169,7 @@ ad video projects/myshow ep01 --preset balanced  # 先快速过一遍
    - 产物在 `episodes/ep01/prompts/<段>.txt`。
 2. **ComfyUI 抽卡**：
    - Ref2VA 段的参考包括：每个切点的关键帧、角色设定图，以及本段对白音轨（`<Audio 1>`，嘴型跟着它动）。
-   - 每张关键帧都用 AddGuide 钉在对应切点帧上。
+   - 从第 2 个镜头起，关键帧用 AddGuide 钉在对应切点帧上；第 1 镜的关键帧只作参考图（提示词写“从 <Picture 1> 开始”，与官方 multiframe 模板一致）。
    - 每条生成完立即检查黑场、冻帧和时长。
 3. **对白回读质检**：用 Qwen3-ASR 识别每条视频里的对白，和剧本比对字错率（默认 >15% 判不合格）。之后自动选出最好的一条。
 
@@ -259,7 +259,7 @@ H3 一段最长 15 秒。超过 15 秒的独白，或者反复抽都对不上口
 
 1. 下载模型组：`python scripts/download_models.py --comfy <ComfyUI> --groups lipsync`。
 2. 在 ComfyUI 中打开 `workflows/11_infinitetalk_fallback_lipsync.json`，把 LoadImage 换成该镜头的关键帧，LoadAudio 换成该段对白音轨 `episodes/ep01/audio/<段>_dialogue.wav`，然后运行。
-3. 登记回流水线：`ad add-take projects/myshow ep01 ep01_g05 ComfyUI/output/aidrama/talk_00001_.mp4`。
+3. 登记回流水线：`ad add-take projects/myshow ep01 ep01_g05 <stack>/ComfyUI/output/aidrama/talk_00001_.mp4`。
 
 ### Wan Animate 2：打戏、复杂走位、需要真人表演
 

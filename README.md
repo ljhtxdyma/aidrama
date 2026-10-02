@@ -124,11 +124,11 @@ bash install/linux/start_all.sh                                         # Linux
 
 | 预设 | H3 设置 | 一段 8–10 秒（一条） | 一集 90 秒（约 10 段 × 2 条） | 用途 |
 |---|---|---|---|---|
-| `quality`（默认） | FL2VA 20 步 / Ref2VA 25 步，INT8 注意力 | 约 8–15 分钟 | 视频约 3–5 小时，全流程约 5–7 小时 | 成片 |
+| `quality`（默认） | FL2VA 20 步 / Ref2VA 25 步，INT8 注意力 | 约 8–15 分钟 | 视频约 3–6 小时，全流程约 5–8 小时 | 成片 |
 | `balanced` | FL2VA 官方 Turbo 8 步 LoRA；Ref2VA 不用 LoRA、16 步 | 约 3–8 分钟 | 全流程约 2.5–4 小时 | 日更、跑量 |
 | `draft` | FL2VA 用 FastH3（8 步 + VSA 稀疏注意力）；Ref2VA 用 4 步 LoRA，512×896 | 约 1–2 分钟 | 约 30–60 分钟 | 预演节奏和调度（4 步 LoRA 会损伤对白音质，只用于看画面） |
 
-以上是根据社区在 5090 上的实测数据（1280×704、5 秒、20 步约 270 秒；Turbo 8 步加 INT8 注意力约 79 秒）推算的，**云端没有 GPU，未实测**。
+以上是根据社区在 5090 上的数据推算的：1280×704、5 秒、Turbo 8 步加 INT8 注意力实测约 79 秒；不加速 20 步约 270 秒（社区外推值）。**云端没有 GPU，未实测**。
 建议用夜间批量跑 `quality`；可以用 `--preset balanced` 快速过一遍，再对选中的段用 `quality` 重抽。
 
 ## 目录结构
@@ -141,7 +141,7 @@ aidrama/            编排器（Python 包）
   pipeline.py       各阶段编排、显存调度（ComfyUI / 音频 / LLM 轮流占用显卡）、抽卡与选优
   assemble.py       ffmpeg 合成：转场、字幕、BGM 闪避、响度、AI 标识
 configs/
-  default.yaml      全部可调参数（工程目录里放 aidrama.yaml 只覆盖需要改的项）
+  default.yaml      常用参数及注释（工程目录里放 aidrama.yaml 只覆盖需要改的项）
   models.yaml       模型清单：文件名、体积、下载地址、许可证
 services/audio_server.py   本地音频服务（IndexTTS-2.5 / Qwen3-TTS / Qwen3-ASR）
 scripts/            download_models.py（断点续传 + 国内镜像）、comfy_validate.py（用 ComfyUI 自己校验工作流）
@@ -168,7 +168,7 @@ tests/              单元测试 + 全流程模拟测试
   - Linux 启动/停止脚本和 `doctor` 在真实 ComfyUI（CPU 模式）上跑通过，包括路径带空格的情况。
   - PowerShell 脚本过了 PowerShell 解析器检查，并检查了 UTF-8 BOM。
   - 全流程“模拟模式”（`--mock`）可以产出 1080×1920、-14 LUFS、带字幕、AI 标识和 AIGC 元数据的成片。
-  - 共 43 个自动化测试，其中 15 个是代码审查发现问题后补的回归测试。
+  - 共 44 个自动化测试，其中 16 个是代码审查发现问题后补的回归测试。
 - **未验证**：真实模型推理的画质和速度，需要在你的 5090 上跑。第一次请先跑示例工程，并按 [docs/05-质检与返工.md](docs/05-质检与返工.md) 检查结果。
 - 安装脚本里的 Windows 部分只做过语法检查，没有在 Windows 机器上实际执行。遇到问题请看 [docs/06-常见问题.md](docs/06-常见问题.md)。
 
