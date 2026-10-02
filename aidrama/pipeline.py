@@ -371,11 +371,15 @@ class Pipeline:
         if not todo:
             return
 
-        # A. 提示词
-        if vcfg.get("refine_prompt_with_llm", True):
+        # A. 提示词（补抽时沿用已有条目的提示词，保证同一段的各条可比；有 .manual.txt 时重新读取）
+        pdir = self.dir / "episodes" / ep_id / "prompts"
+        need = {seg.id for seg in todo if not (seg.takes and seg.prompt) or (pdir / f"{seg.id}.manual.txt").exists()}
+        if need and vcfg.get("refine_prompt_with_llm", True):
             self._gpu("llm")
         for seg in todo:
             dtrack = self._dialogue_track(ep, seg)
+            if seg.id not in need:
+                continue
             cont = smap[seg.shots[0]][1].method == "continue"
             plan = build_plan(p, ep, seg, self.cfg, dtrack, "<上一段尾帧>" if cont else None)
             seg.prompt = self._compile_prompt(ep, seg, plan)

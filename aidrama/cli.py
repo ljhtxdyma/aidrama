@@ -143,6 +143,12 @@ def cmd_export(a):
         print(p)
 
 
+def cmd_smoke(a):
+    from .smoke import smoke
+
+    sys.exit(0 if smoke(a.only.split(",") if a.only else None) else 1)
+
+
 def cmd_doctor(a):
     from .doctor import doctor
 
@@ -204,6 +210,8 @@ def main(argv=None):
     add("fetch-guides", cmd_fetch_guides, "下载 MiniMax 官方 H3 提示词指南", ep=False, project=False)
     s = add("export-workflows", cmd_export, "导出各阶段 ComfyUI API 工作流示例", ep=False, project=False)
     s.add_argument("out")
+    s = add("smoke", cmd_smoke, "真机冒烟测试：每个模型用最小参数推理一次（装好后先跑，约 10~15 分钟）", ep=False, project=False)
+    s.add_argument("--only", default="", help="逗号分隔：image,h3,ref2va,upscale,music,audio")
     s = add("doctor", cmd_doctor, "体检：ComfyUI、节点、模型文件、音频服务、LLM、ffmpeg", ep=False, project=False)
     s.add_argument("--project", default=None)
     s.add_argument("--comfy", default=None)

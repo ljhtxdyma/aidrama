@@ -179,5 +179,5 @@ EOF
 "$REPO/.venv/bin/python" -m pytest -q "$REPO/tests" -x
 ok "安装完成。下一步："
 echo "   1) 启动服务：  bash install/linux/start_all.sh"
-echo "   2) 体检：      ./aidrama.sh doctor"
+echo "   2) 体检：      ./aidrama.sh doctor && ./aidrama.sh smoke   （真机冒烟测试，约 10~15 分钟）"
 echo "   3) 示例工程：  ./aidrama.sh init-demo projects/demo && ./aidrama.sh run projects/demo ep01"

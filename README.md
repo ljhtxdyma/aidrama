@@ -88,6 +88,15 @@ bash install/linux/start_all.sh                                         # Linux
 
 `doctor` 会逐项检查：ffmpeg、ComfyUI 版本和节点、各组模型文件是否齐全、音频服务、LLM、官方提示词指南。
 
+第一次装好后，再跑一次**真机冒烟测试**（约 10–15 分钟）：
+
+```bash
+./aidrama.sh smoke          # Windows：.\aidrama.bat smoke
+```
+
+它会让每个模型都用最小参数真正推理一次，包括 Qwen 文生图和编辑、H3 FL2VA 和 Ref2VA、SeedVR2、Music 3、配音和识别。
+跑完打印每一项的耗时和结果，用来确认模型能加载、显存够用。
+
 ### 3. 跑示例《第七封信》（30 秒，2 场 8 个镜头，含两人对白）
 
 ```bash

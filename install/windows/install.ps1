@@ -223,5 +223,5 @@ Run $AdPy -m pytest -q (Join-Path $Repo "tests") -x
 Write-Host ""
 Ok "安装完成。下一步："
 Write-Host "   1) 启动服务：  powershell -ExecutionPolicy Bypass -File install\windows\start_all.ps1"
-Write-Host "   2) 体检：      .\aidrama.bat doctor"
+Write-Host "   2) 体检：      .\aidrama.bat doctor ;  .\aidrama.bat smoke   （真机冒烟测试，约 10~15 分钟）"
 Write-Host "   3) 示例工程：  .\aidrama.bat init-demo projects\demo ;  .\aidrama.bat run projects\demo ep01"
