@@ -157,12 +157,18 @@ tests/              单元测试 + 全流程模拟测试
 这套流程是在没有 GPU、也无法访问 HuggingFace 的云端容器里开发的，因此：
 
 - **已验证**
-  - 流水线实际提交的全部 ComfyUI 工作流，都用真实的 ComfyUI v0.38 `validate_prompt` 做了校验，全部通过。这批工作流来自 `workflows/` 下的 13 个，以及示例工程跑出的 26 个。
-  - ComfyUI HTTP/WebSocket 客户端和真实 ComfyUI 实例联调过。
+  - 流水线实际提交的全部 ComfyUI 工作流都用真实的 ComfyUI v0.38 `validate_prompt` 校验通过，三档预设（quality / balanced / draft）都覆盖了。这批工作流包括：
+    - `workflows/` 下的 13 个；
+    - 示例工程三档预设各跑一遍生成的工作流；
+    - `smoke` 冒烟测试的 6 个。
+  - 关键参数逐项对照了 ComfyUI 官方模板（comfyui-workflow-templates 0.11.74）：采样器、步数、CFG、shift、LoRA 搭配、分辨率等。
+  - ComfyUI 客户端和真实 ComfyUI 实例联调过，包括断线重连、任务丢失检测、错误上报。
   - 音频服务的 HTTP 接口跑通过。
-  - 启动脚本、`doctor` 体检，以及 PowerShell 脚本的语法解析都检查过。
-  - 全流程“模拟模式”（`--mock`）可以产出 1080×1920、-14 LUFS、带字幕和 AI 标识的成片。
-  - 共 24 个自动化测试。
+  - 模型下载器在本地模拟服务上测过：续传、限流返回的错误页、Git LFS 指针文件、416 响应。
+  - Linux 启动/停止脚本和 `doctor` 在真实 ComfyUI（CPU 模式）上跑通过，包括路径带空格的情况。
+  - PowerShell 脚本过了 PowerShell 解析器检查，并检查了 UTF-8 BOM。
+  - 全流程“模拟模式”（`--mock`）可以产出 1080×1920、-14 LUFS、带字幕、AI 标识和 AIGC 元数据的成片。
+  - 共 43 个自动化测试，其中 15 个是代码审查发现问题后补的回归测试。
 - **未验证**：真实模型推理的画质和速度，需要在你的 5090 上跑。第一次请先跑示例工程，并按 [docs/05-质检与返工.md](docs/05-质检与返工.md) 检查结果。
 - 安装脚本里的 Windows 部分只做过语法检查，没有在 Windows 机器上实际执行。遇到问题请看 [docs/06-常见问题.md](docs/06-常见问题.md)。
 
