@@ -16,9 +16,16 @@ if [[ -z "${HF_ENDPOINT:-}" ]] && ! curl -sI --max-time 5 https://huggingface.co
   export HF_ENDPOINT="https://hf-mirror.com"; echo "huggingface.co 不可达，使用 HF_ENDPOINT=$HF_ENDPOINT"
 fi
 
+running() {  # running <name> <exe>：pid 文件里的进程还活着，且确实是我们启动的程序（防止重启后 PID 被复用）
+  local pidf="$LOGS/$1.pid" pid
+  [[ -f "$pidf" ]] || return 1
+  pid="$(cat "$pidf")"
+  kill -0 "$pid" 2>/dev/null && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -qF "$2"
+}
 launch() {  # launch <name> <workdir> <cmd...>
   local name="$1" dir="$2"; shift 2
-  if [[ -f "$LOGS/$name.pid" ]] && kill -0 "$(cat "$LOGS/$name.pid")" 2>/dev/null; then echo "  $name 已在运行"; return; fi
+  if [[ ! -x "$1" ]]; then echo "  [!] 跳过 $name：找不到 $1（安装时跳过了这一步？）"; return; fi
+  if running "$name" "$1"; then echo "  $name 已在运行"; return; fi
   (cd "$dir" || exit 1; nohup "$@" >"$LOGS/$name.log" 2>&1 </dev/null & echo $! >"$LOGS/$name.pid")
   echo "  启动 $name（日志 $LOGS/$name.log）"
 }

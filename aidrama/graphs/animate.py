@@ -35,6 +35,11 @@ def build_wan_animate2(job: AnimateJob) -> dict:
     length = max(5, (job.frames - 1) // 4 * 4 + 1)
     g = Graph()
     model = g.add("UNETLoader", unet_name=M.WAN_ANIMATE2_DISTILL if job.distilled else M.WAN_ANIMATE2, weight_dtype="default").out
+    steps = job.steps
+    if not job.distilled:
+        # 非蒸馏版：官方模板 video_wan_animate2 = 基础模型 + lightx2v 蒸馏 LoRA，lcm 6 步
+        model = g.add("LoraLoaderModelOnly", model=model, lora_name=M.WAN_LIGHTX2V_480, strength_model=1.0).out
+        steps = 6
     if length > 81:
         model = g.add("ContextWindowsManual", model=model, context_length=21, context_overlap=8, context_schedule="standard_static",
                       context_stride=1, closed_loop=False, fuse_method="pyramid", dim=2, freenoise=True,
@@ -62,7 +67,7 @@ def build_wan_animate2(job: AnimateJob) -> dict:
                  reference_image_strength=1.0, reference_image=ref_r, pose_video=pose, clip_vision_output=cv_ref,
                  positive_pose=pos_pose, clip_vision_output_pose=cv_pose)
     sampler = g.add("KSamplerSelect", sampler_name="lcm").out
-    sigmas = g.add("BasicScheduler", model=model, scheduler="simple", steps=job.steps, denoise=1.0).out
+    sigmas = g.add("BasicScheduler", model=model, scheduler="simple", steps=steps, denoise=1.0).out
     lat = g.add("SamplerCustom", model=sampling_model, add_noise=True, noise_seed=job.seed, cfg=1.0, positive=anim[0],
                 negative=anim[1], sampler=sampler, sigmas=sigmas, latent_image=anim[2])[0]
     lat = g.add("TrimVideoLatent", samples=lat, trim_amount=anim[3]).out

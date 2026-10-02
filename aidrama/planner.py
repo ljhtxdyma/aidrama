@@ -86,7 +86,7 @@ def plan_segments(project: Project, ep: Episode, cfg: dict) -> list[Segment]:
         has_dialogue = any(sh.dialogue for sh in shots)
         if seg.engine != "wan_animate" and len(shots) == 1 and (not has_dialogue or shots[0].method in ("flf2v", "t2v", "continue")):
             seg.engine = "h3_fl2va"
-        seg.gen_seconds = round(min(max(seg.planned, 4.0), 15.0), 3)
+        seg.gen_seconds = round(min(max(seg.planned, 5.0), 15.0), 3)   # H3 训练时长约 124~362 帧（5.1~15 秒）
     return segs
 
 
@@ -129,10 +129,12 @@ def build_plan(project: Project, ep: Episode, seg: Segment, cfg: dict, dialogue_
                 chars.append(ln.speaker)
 
     identity = {c: _identity_en(project, c, outfits.get(c)) for c in chars}
+    # 不在本段画面里的角色（例如提示词里写了“[gu_chen] 空着的办公室”）用身份短语替换，不能留下 [id]
+    names = {c.id: c.identity_en for c in project.characters}
     if mode == "ref2va":
-        names = {c: f"<Subject {i + 1}>" for i, c in enumerate(chars)}
+        names.update({c: f"<Subject {i + 1}>" for i, c in enumerate(chars)})
     else:
-        names = {c: identity[c] if i == 0 else project.character(c).identity_en for i, c in enumerate(chars)}
+        names.update({c: identity[c] if i == 0 else project.character(c).identity_en for i, c in enumerate(chars)})
     speakers = {c: Speaker(c, names[c], project.character(c).voice.voice_en) for c in chars}
 
     cuts = []
@@ -144,7 +146,7 @@ def build_plan(project: Project, ep: Episode, seg: Segment, cfg: dict, dialogue_
             start=t0, duration=(seg.cut_times[k] if k < len(shots) else seg.planned) - t0,
             visual=substitute(sh.motion_prompt or sh.keyframe_prompt, names),
             camera=sh.camera_en, shot_size=sh.shot_size, lines=lines,
-            listeners=[c for c in sh.characters if c not in speaking],
+            listeners=[c for c in sh.characters if c not in speaking], characters=list(sh.characters),
             end_state=substitute(sh.end_state, names), sfx=sh.sfx,
             keyframe_label=None,
         ))
@@ -173,7 +175,8 @@ def build_plan(project: Project, ep: Episode, seg: Segment, cfg: dict, dialogue_
             refs.append(RefItem("image", "first_frame" if k == 1 else "keyframe", cut=k,
                                 desc=clip_text(substitute(sh.keyframe_prompt, names), 240)))
             paths.append(sh.keyframe)
-            guides.append((round(seg.cut_times[k - 1] * 24), sh.keyframe))
+            if k > 1:   # 官方多帧模板：第 1 张只作参考图（提示词写“从 <Picture 1> 开始”），后面的切点才用 AddGuide 钉帧
+                guides.append((round(seg.cut_times[k - 1] * 24), sh.keyframe))
             cuts[k - 1].keyframe_label = f"<Picture {sum(1 for r in refs if r.kind == 'image')}>"
     for c in chars:
         ch = project.character(c)

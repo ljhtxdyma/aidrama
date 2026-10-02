@@ -61,7 +61,8 @@ class AssembleOptions:
 
 def _norm_clip(src: str, dst: Path, dur: float | None, o: AssembleOptions) -> float:
     src_dur = ff.duration(src)
-    target = dur or src_dur
+    # 对齐到整帧：否则硬切拼接时每段多出不到一帧，字幕会越往后越偏
+    target = max(1, round((dur or src_dur) * o.fps)) / o.fps
     vf = (
         f"scale={o.width}:{o.height}:force_original_aspect_ratio=increase:flags=lanczos,"
         f"crop={o.width}:{o.height},setsar=1,fps={o.fps},format=yuv420p"
@@ -192,8 +193,12 @@ def assemble(clips: list[Clip], out_dir: str | Path, name: str = "episode", opts
         import subprocess
         p = subprocess.run([ff.ffmpeg_bin(), "-hide_banner", "-nostdin", "-y"] + meas_cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace")
         m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", p.stderr, re.S)
-        if m:
-            meas = json.loads(m.group(0))
+        meas = json.loads(m.group(0)) if m else None
+        if meas and not all(math.isfinite(float(meas[k])) for k in ("input_i", "input_tp", "input_lra", "input_thresh")):
+            meas = "silent"     # 全片无声（例如没有配乐的动作迁移段）：不做响度归一，否则 -inf 会让 ffmpeg 报错
+        if meas == "silent":
+            ln = "anull"
+        elif meas:
             ln = (f"loudnorm=I={o.target_lufs}:TP=-1.0:LRA=11:measured_I={meas['input_i']}:measured_TP={meas['input_tp']}"
                   f":measured_LRA={meas['input_lra']}:measured_thresh={meas['input_thresh']}:offset={meas['target_offset']}:linear=true")
         else:

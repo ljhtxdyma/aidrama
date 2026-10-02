@@ -116,24 +116,14 @@ class LLM:
 
 
 def _strip_think(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    if "</think>" in text:      # 模板自动加了 <think>，回复里只剩结尾标签：丢掉它之前的推理过程
+        text = text.rsplit("</think>", 1)[1]
+    return text.strip()
 
 
-def extract_json(text: str) -> Any:
-    text = _strip_think(text)
-    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
-    if m:
-        text = m.group(1)
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    # 找到第一个 { 或 [ 与其匹配的结尾
-    starts = [i for i in (text.find("{"), text.find("[")) if i >= 0]
-    if not starts:
-        raise ValueError("回复中没有 JSON")
-    s = min(starts)
+def _scan(text: str, s: int) -> tuple[Any, bool]:
+    """从 text[s]（{ 或 [）开始找匹配的结尾并解析；返回 (结果, 是否到文本末尾都没闭合)。"""
     opener = text[s]
     closer = "}" if opener == "{" else "]"
     depth, in_str, esc = 0, False, False
@@ -154,5 +144,32 @@ def extract_json(text: str) -> Any:
         elif ch == closer:
             depth -= 1
             if depth == 0:
-                return json.loads(text[s:i + 1])
+                return json.loads(text[s:i + 1]), False
+    return None, True
+
+
+def extract_json(text: str) -> Any:
+    text = _strip_think(text)
+    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if m:
+        text = m.group(1)
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # 依次尝试每个 { / [：前面的说明文字里出现“[JSON]”之类的括号也不影响
+    truncated = False
+    for s in [i for i, ch in enumerate(text) if ch in "{["]:
+        try:
+            val, open_end = _scan(text, s)
+        except json.JSONDecodeError:
+            continue
+        if open_end:
+            truncated = True
+            continue
+        if isinstance(val, (dict, list)):
+            return val
+    if not truncated:
+        raise ValueError("回复中没有 JSON")
     raise ValueError("JSON 不完整（可能被截断，请调大 max_tokens）")

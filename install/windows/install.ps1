@@ -19,7 +19,7 @@ aidrama 一键安装（Windows 10/11 + RTX 5090 32GB + 128GB 内存）
 #>
 param(
     [string]$StackDir = "",
-    [string]$Groups = "core,fast",
+    [string[]]$Groups = @("core", "fast"),     # -Groups core,fast,lipsync 会被 PowerShell 当成数组，这里统一接收
     [ValidateSet("auto", "huggingface", "hf-mirror", "modelscope")][string]$Source = "auto",
     [ValidateSet("", "tuna", "aliyun")][string]$PipMirror = "",
     [string]$ComfyTag = "v0.38.2",
@@ -29,6 +29,10 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+# Windows PowerShell 5.1 在部分 Win10 上默认 TLS 1.0，GitHub 下载会失败
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$GroupList = (($Groups -join ",") -split "[,\s]+" | Where-Object { $_ }) -join ","
+$Failed = New-Object System.Collections.Generic.List[string]
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $Repo = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -65,6 +69,15 @@ function Need($cmd, $wingetId) {
     Ok "$cmd -> $((Get-Command $cmd).Source)"
 }
 
+function Write-StackEnv {
+    @(
+        "STACK_DIR=$StackDir",
+        "COMFY_DIR=$Comfy",
+        "INDEXTTS_DIR=$IndexTTS",
+        "QWEN_AUDIO_DIR=$QwenAudio"
+    ) | Set-Content -Path (Join-Path $Repo ".stack.env") -Encoding UTF8
+}
+
 $PyIndex = ""
 if ($PipMirror -eq "tuna") { $PyIndex = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 if ($PipMirror -eq "aliyun") { $PyIndex = "https://mirrors.aliyun.com/pypi/simple" }
@@ -77,10 +90,14 @@ $TorchCu128 = "https://download.pytorch.org/whl/cu128"
 # ---------------------------------------------------------------- 0. 体检
 Step "0/8 硬件与磁盘"
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    $gpu = (& nvidia-smi "--query-gpu=name,driver_version,memory.total" "--format=csv,noheader" | Select-Object -First 1)
-    Ok "GPU: $gpu"
-    $drv = [int](($gpu -split ",")[1].Trim().Split(".")[0])
-    if ($drv -lt 580) { Warn "驱动主版本 $drv < 580：请先到 nvidia.cn 安装最新 Game Ready / Studio 驱动（cu130 和 comfy-kitchen 需要 r580+）" }
+    $gpu = (& nvidia-smi "--query-gpu=name,driver_version,memory.total" "--format=csv,noheader" 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or -not $gpu -or ($gpu -split ",").Count -lt 2) {
+        Warn "nvidia-smi 运行失败（驱动可能没装好，或升级后需要重启）：$gpu"
+    } else {
+        Ok "GPU: $gpu"
+        $drv = [int](($gpu -split ",")[1].Trim().Split(".")[0])
+        if ($drv -lt 580) { Warn "驱动主版本 $drv < 580：请先到 nvidia.cn 安装最新 Game Ready / Studio 驱动（cu130 和 comfy-kitchen 需要 r580+）" }
+    }
 } else { Warn "找不到 nvidia-smi，请先安装 NVIDIA 驱动" }
 $drive = (Get-Item $StackDir).PSDrive
 $freeGB = [math]::Round($drive.Free / 1GB)
@@ -105,13 +122,17 @@ Run uv pip install --python $ComfyPy torch torchvision torchaudio --index-url $T
 Run uv pip install --python $ComfyPy -r (Join-Path $Comfy "requirements.txt")
 & $ComfyPy -c "import torch;print('  torch', torch.__version__, 'cuda', torch.version.cuda, 'available', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
 if ($LASTEXITCODE -ne 0) { throw "PyTorch 检查失败" }
+& $ComfyPy -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 3)"
+if ($LASTEXITCODE -ne 0) { Warn "PyTorch 看不到 GPU：请升级 NVIDIA 驱动到 r580+ 后重启，再重跑本脚本（否则 ComfyUI 会用 CPU，极慢）" }
 
 # ---------------------------------------------------------------- 3. aidrama
 Step "3/8 aidrama 编排器"
 $AdPy = Join-Path $Repo ".venv\Scripts\python.exe"
 if (-not (Test-Path $AdPy)) { Run uv venv --python 3.12 (Join-Path $Repo ".venv") }
 Run uv pip install --python $AdPy -e "${Repo}[dev]"
-Set-Content -Path (Join-Path $Repo "aidrama.bat") -Encoding ASCII -Value "@echo off`r`n`"%~dp0.venv\Scripts\python.exe`" -m aidrama %*"
+Set-Content -Path (Join-Path $Repo "aidrama.bat") -Encoding ASCII -Value "@echo off`r`nset PYTHONUTF8=1`r`n`"%~dp0.venv\Scripts\python.exe`" -m aidrama %*"
+# 尽早写路径配置：后面任何一步失败，start_all / stop_all 也能用
+Write-StackEnv
 Ok "命令入口：$Repo\aidrama.bat"
 
 # ---------------------------------------------------------------- 4. 字体
@@ -135,13 +156,14 @@ if (-not (Test-Path (Join-Path $Fonts "SourceHanSansSC-Bold.otf"))) {
 } else { Ok "已存在" }
 
 # ---------------------------------------------------------------- 5. ComfyUI 模型
-Step "5/8 ComfyUI 模型（分组：$Groups，来源：$Source）"
+Step "5/8 ComfyUI 模型（分组：$GroupList，来源：$Source）"
 if ($SkipModels) { Warn "按参数跳过" } else {
-    Run $AdPy (Join-Path $Repo "scripts\download_models.py") --comfy $Comfy --groups $Groups --source $Source
+    try { Run $AdPy (Join-Path $Repo "scripts\download_models.py") --comfy $Comfy --groups $GroupList --source $Source }
+    catch { Warn "部分模型没下载成功（$_）；安装继续，稍后重跑本脚本或 download_models.py 会自动续传"; $Failed.Add("ComfyUI 模型") }
 }
 
 function Get-Repo($repoId, $dir) {
-    if ((Test-Path (Join-Path $dir "config.json")) -or (Test-Path (Join-Path $dir "config.yaml"))) { Ok "已存在 $dir"; return }
+    # 每次都调用下载命令：已完整的文件会被跳过，上次中断的会补全（不能只看 config.json 在不在）
     $order = @("huggingface", "modelscope")
     if ($Source -eq "modelscope") { $order = @("modelscope", "huggingface") }
     foreach ($s in $order) {
@@ -151,7 +173,8 @@ function Get-Repo($repoId, $dir) {
             return
         } catch { Warn "$s 下载 $repoId 失败：$_" }
     }
-    throw "无法下载 $repoId"
+    Warn "无法下载 $repoId，安装继续；稍后重跑本脚本会补全"
+    $Failed.Add($repoId)
 }
 
 # ---------------------------------------------------------------- 6. 音频
@@ -212,14 +235,12 @@ if ($SkipLLM) { Warn "按参数跳过" } else {
 
 # ---------------------------------------------------------------- 8. 收尾
 Step "8/8 写入路径配置 + 自检"
-@(
-    "STACK_DIR=$StackDir",
-    "COMFY_DIR=$Comfy",
-    "INDEXTTS_DIR=$IndexTTS",
-    "QWEN_AUDIO_DIR=$QwenAudio"
-) | Set-Content -Path (Join-Path $Repo ".stack.env") -Encoding UTF8
-Run $AdPy -m aidrama fetch-guides
+Write-StackEnv
+try { Run $AdPy -m aidrama fetch-guides } catch { Warn "H3 官方提示词指南下载失败（不影响运行）" }
 Run $AdPy -m pytest -q (Join-Path $Repo "tests") -x
+if ($Failed.Count) {
+    Warn "以下内容没有下载成功，请稍后重跑本脚本（会自动续传）：$($Failed -join '; ')"
+}
 Write-Host ""
 Ok "安装完成。下一步："
 Write-Host "   1) 启动服务：  powershell -ExecutionPolicy Bypass -File install\windows\start_all.ps1"

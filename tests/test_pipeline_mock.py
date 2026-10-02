@@ -1,5 +1,6 @@
 """完整流水线 mock 跑通：不连 ComfyUI / LLM / TTS，但每个提交给 ComfyUI 的工作流都会对照节点快照做静态校验。"""
 import json
+from pathlib import Path
 
 from aidrama import ffmpeg_utils as ff
 from aidrama.pipeline import Pipeline
@@ -78,9 +79,15 @@ def test_continue_shot_uses_previous_tail_frame(demo_project):
     cont = next(s for s in ep.segments if sh.id in s.shots)
     assert cont.takes and cont.prompt.startswith("For the target video, at 0.00 seconds")
     assert (demo_project / "episodes" / "ep01" / "segments" / f"{cont.id}_prev_last.png").exists()
-    g = json.loads((demo_project / "graphs" / f"{cont.id}_t1.json").read_text(encoding="utf-8"))
+    from aidrama.comfy_client import upload_name
+
+    stem = Path(cont.takes[0].path).stem
+    g = json.loads((demo_project / "graphs" / f"{stem}.json").read_text(encoding="utf-8"))
     images = [n["inputs"]["image"] for n in g.values() if n["class_type"] == "LoadImage"]
-    assert images == [f"aidrama/{cont.id}_prev_last.png"]      # 首帧 = 上一段所选条的最后一帧
+    prev_last = demo_project / "episodes" / "ep01" / "segments" / f"{cont.id}_prev_last.png"
+    assert images == [f"aidrama/{upload_name(prev_last)}"]      # 首帧 = 上一段所选条在成片截止处的那一帧
+    prev = ep.segments[ep.segments.index(cont) - 1]
+    assert prev.picked_by_hand                                    # 被续写接上的条已锁定
 
 
 def test_choose_respects_manual_pick():

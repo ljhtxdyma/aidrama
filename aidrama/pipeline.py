@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -26,7 +27,7 @@ from . import ffmpeg_utils as ff
 from . import qc as QC
 from .assemble import AssembleOptions, Clip, assemble
 from .audio import AudioClient, build_track, trim_silence
-from .comfy_client import ComfyClient, ComfyError
+from .comfy_client import ComfyClient, ComfyError, upload_name
 from .config import load_config
 from .graph import validate_api_graph
 from .graphs.h3 import Guide, H3Job, build_h3, snap_length
@@ -117,7 +118,7 @@ class Pipeline:
 
     def _upload(self, path: str | Path) -> str:
         if self.mock:
-            return f"aidrama/{Path(path).name}"
+            return f"aidrama/{upload_name(path)}"
         return self.comfy.upload(path, subfolder=self.cfg["comfy"].get("input_subfolder", "aidrama"))
 
     def _check_graph(self, api: dict, name: str) -> None:
@@ -157,7 +158,12 @@ class Pipeline:
     # ------------------------------------------------------------------ 2. storyboard
     def storyboard(self, ep_id: str, notes: str = "") -> Episode:
         self._gpu("llm")
+        old_bgm_prompt = self.project.episode(ep_id).bgm_prompt
         ep = make_storyboard(self.llm, self.project, ep_id, notes)
+        # 重写分镜后：成片作废；配乐描述变了就重做配乐；旧视频由 plan 按内容签名判断能否沿用
+        ep.output = None
+        if ep.bgm_prompt != old_bgm_prompt:
+            ep.bgm = None
         self.save()
         n = sum(len(s.shots) for s in ep.scenes)
         total = sum(sh.duration for s in ep.scenes for sh in s.shots)
@@ -193,7 +199,7 @@ class Pipeline:
                               f"{style}. No text, no labels.")
                     self.log(f"[cast] {c.name} 设定图（{key}）")
                     c.refs[rk] = self.rel(self._image_edit(prompt, [self.abs(c.refs["front"])], cdir / f"{rk}.png",
-                                                            1536, 1024, _seed(c.id, rk), f"{c.id}_{rk}", eng))
+                                                            1344, 896, _seed(c.id, rk), f"{c.id}_{rk}", eng))
                     self.save()
         for loc in p.locations:
             if force or not loc.refs.get("plate"):
@@ -207,7 +213,10 @@ class Pipeline:
 
     def voices(self, force: bool = False) -> None:
         for c in self.project.characters:
-            if c.voice.ref_audio and not force:
+            designed = f"assets/characters/{c.id}/voice.wav"
+            if c.voice.ref_audio and (not force or c.voice.ref_audio != designed):
+                if force:
+                    self.log(f"[voice] {c.name} 用的是你提供的录音 {c.voice.ref_audio}，--force 也不会覆盖（要重新设计请先清空 ref_audio）")
                 continue
             if not c.voice.description:
                 continue
@@ -255,39 +264,84 @@ class Pipeline:
         adir = self.dir / "episodes" / ep_id / "audio"
         for sc in ep.scenes:
             for sh in sc.shots:
-                for i, ln in enumerate(sh.dialogue, 1):
-                    if ln.audio and not force and self.abs(ln.audio).exists():
-                        continue
+                for ln in sh.dialogue:
                     ch = self.project.character(ln.speaker)
+                    emo_ref = ch.voice.emotion_refs.get(ln.emotion)
+                    # 文件名带上“台词+情绪+音色”的哈希：插入/删除/改写台词不会覆盖别的句子，改过的句子自动重配
+                    key = hashlib.sha1(json.dumps([ln.speaker, ln.text, ln.emotion, ln.emo_vector, ch.voice.ref_audio, emo_ref],
+                                                  ensure_ascii=False).encode()).hexdigest()[:8]
+                    target = adir / f"{sh.id}_{key}.wav"
+                    auto = bool(ln.audio) and re.fullmatch(rf"{re.escape(sh.id)}_[0-9a-f]{{8}}\.wav", Path(ln.audio).name) is not None
+                    if ln.audio and self.abs(ln.audio).exists() and not force and (not auto or self.abs(ln.audio) == target):
+                        if ln.duration is None:          # 你自己放进来的录音：只补时长
+                            ln.duration = round(ff.duration(self.abs(ln.audio)), 3)
+                        continue
                     if not ch.voice.ref_audio:
                         raise RuntimeError(f"角色 {ch.name} 还没有参考音色，请先运行 cast/voices")
                     self._gpu("audio")
-                    raw = adir / f"{sh.id}_l{i}_raw.wav"
-                    emo_ref = ch.voice.emotion_refs.get(ln.emotion)
+                    raw = adir / f"{sh.id}_{key}_raw.wav"
                     self.audio.tts(ln.text, self.abs(ch.voice.ref_audio), raw, ln.emotion, ln.emo_vector,
                                    str(self.abs(emo_ref)) if emo_ref else None, lang)
-                    clean = trim_silence(raw, adir / f"{sh.id}_l{i}.wav")
+                    clean = trim_silence(raw, target)
                     ln.audio = self.rel(clean)
                     ln.duration = round(ff.duration(clean), 3)
                     self.log(f"[voice] {sh.id} {ch.name}：{ln.plain}（{ln.duration:.2f}s）")
                 self.save()
 
     # ------------------------------------------------------------------ 5. plan
-    def plan(self, ep_id: str) -> list[Segment]:
+    def plan(self, ep_id: str, quiet: bool = False) -> list[Segment]:
         ep = self.project.episode(ep_id)
-        old = {s.id: s for s in ep.segments}
         segs = plan_segments(self.project, ep, self.cfg)
-        for s in segs:   # 时间轴没变就保留已有的生成结果
-            o = old.get(s.id)
-            if o and o.shots == s.shots and abs(o.planned - s.planned) < 1e-3 and o.engine == s.engine:
+        limit = 15.0
+        too_long = [s for s in segs if s.planned > limit + 1e-6]
+        if too_long:
+            smap = self.project.shot_map(ep)
+            msg = "; ".join(f"{s.id}（{', '.join(s.shots)}）需要 {s.planned:.1f}s" for s in too_long)
+            hint = [sid for s in too_long for sid in s.shots if smap[sid][1].dialogue]
+            raise ValueError(f"以下生成段超过 H3 单次上限 {limit:.0f} 秒：{msg}。"
+                             + (f"请把镜头 {', '.join(hint)} 的台词拆到两个镜头里，" if hint else "")
+                             + "或缩短镜头时长（对白镜头的时长由配音实际长度决定）")
+        old = {o.sig: o for o in ep.segments if o.sig}
+        pdir = self.dir / "episodes" / ep_id / "prompts"
+        for s in segs:
+            s.sig = self._seg_sig(ep, s)
+            o = old.get(s.sig)
+            if o:      # 内容没变就保留已有的生成结果（即使段号因为前面的改动而变了）
                 s.takes, s.chosen, s.video_final, s.status, s.prompt = o.takes, o.chosen, o.video_final, o.status, o.prompt
-                s.picked_by_hand = o.picked_by_hand
-                s.dialogue_track, s.refs = o.dialogue_track, o.refs
+                s.picked_by_hand, s.dialogue_track, s.refs = o.picked_by_hand, o.dialogue_track, o.refs
+                if o.id != s.id and (pdir / f"{o.id}.manual.txt").exists() and not (pdir / f"{s.id}.manual.txt").exists():
+                    (pdir / f"{o.id}.manual.txt").rename(pdir / f"{s.id}.manual.txt")
+                    self.log(f"[plan] 人工提示词 {o.id}.manual.txt → {s.id}.manual.txt（段号变了，镜头没变）")
+        old_by_id = {o.id: o for o in ep.segments}
+        for s in segs:   # 段号相同但镜头已经变了：旧的人工提示词不能套到新镜头上
+            o = old_by_id.get(s.id)
+            m = pdir / f"{s.id}.manual.txt"
+            if m.exists() and o is not None and o.shots != s.shots:
+                m.rename(pdir / f"{s.id}.manual.{time.strftime('%Y%m%d%H%M%S')}.orphan.txt")
+                self.log(f"[plan] ! {s.id} 的镜头变了，原 {m.name} 已改名为 orphan，请检查后重新放置")
         ep.segments = segs
         self.save()
-        for s in segs:
-            self.log(f"[plan] {s.id} {s.engine:10s} {len(s.shots)} 镜 {s.planned:5.2f}s（生成 {s.gen_seconds:.2f}s）: {', '.join(s.shots)}")
+        if not quiet:
+            for s in segs:
+                self.log(f"[plan] {s.id} {s.engine:10s} {len(s.shots)} 镜 {s.planned:5.2f}s（生成 {s.gen_seconds:.2f}s）: {', '.join(s.shots)}")
         return segs
+
+    def _seg_sig(self, ep: Episode, seg: Segment) -> str:
+        """生成段的内容签名：影响画面/声音的字段（含关键帧文件内容、配音文件）变了，旧视频就不再沿用。"""
+        smap = self.project.shot_map(ep)
+        h = hashlib.sha1(f"{seg.engine}|{seg.planned:.3f}|{seg.cut_times}".encode())
+        for sid in seg.shots:
+            sc, sh = smap[sid]
+            h.update(json.dumps([sid, sc.location, sc.lighting_en, sc.sound_en, sh.keyframe_prompt, sh.end_keyframe_prompt,
+                                 sh.motion_prompt, sh.camera_en, sh.characters, sh.outfit, sh.method, sh.end_state, sh.sfx,
+                                 sh.transition, sh.driving_video,
+                                 [(ln.speaker, ln.text, ln.emotion, ln.delivery, ln.voiceover, ln.audio) for ln in sh.dialogue]],
+                                ensure_ascii=False, sort_keys=True).encode())
+            for kf in (sh.keyframe, sh.end_keyframe):
+                f = self.abs(kf)
+                if f and f.exists():
+                    h.update(hashlib.sha1(f.read_bytes()).digest())
+        return h.hexdigest()[:10]
 
     # ------------------------------------------------------------------ 6. keyframes
     def keyframes(self, ep_id: str, force: bool = False, only: list[str] | None = None) -> None:
@@ -309,7 +363,8 @@ class Pipeline:
                     if getattr(sh, attr) and not force:
                         continue
                     text = sh.keyframe_prompt if which == "start" else sh.end_keyframe_prompt
-                    refs, names = [], {}
+                    refs = []
+                    names = {c.id: c.identity_en for c in p.characters}   # 画面外的角色也要替换掉 [id]
                     max_refs = 3 if eng == "qwen2511" else 9
                     for c in sh.characters[: max_refs]:
                         ch = p.character(c)
@@ -343,8 +398,7 @@ class Pipeline:
         A. 编译提示词（本地 LLM 扩写）→ B. ComfyUI 抽卡 + 技术质检 → C. 对白回读质检（ASR）+ 自动选优。"""
         p = self.project
         ep = p.episode(ep_id)
-        if not ep.segments:
-            self.plan(ep_id)
+        self.plan(ep_id, quiet=bool(ep.segments))    # 配音/分镜改过也能拿到最新时间轴；内容没变的段保留原有结果
         vcfg = self.cfg["video"]
         pre = self.cfg["_preset"]
         takes = takes or int(vcfg.get("takes", 2))
@@ -353,6 +407,7 @@ class Pipeline:
         smap = p.shot_map(ep)
 
         todo: list[Segment] = []
+        pending: list[tuple[Segment, Take]] = []   # 上次中断留下的：已生成但还没做对白质检/没选条
         for seg in ep.segments:
             if only and seg.id not in only and not any(s in only for s in seg.shots):
                 continue
@@ -362,18 +417,30 @@ class Pipeline:
                          f"再用 add-take 登记" + (f"；对白音轨：{dt}" if dt else ""))
                 self.save()
                 continue
-            if force:
-                seg.takes, seg.chosen, seg.video_final, seg.picked_by_hand = [], None, None, False
+            chosen_take = seg.takes[seg.chosen] if seg.chosen is not None and seg.chosen < len(seg.takes) else None
+            if force:   # 重抽：丢掉流水线生成的条，保留 add-take 登记的外部视频
+                seg.takes = [t for t in seg.takes if t.preset == "external"]
+                if chosen_take is None or chosen_take.preset != "external":
+                    chosen_take, seg.picked_by_hand = None, False
+                seg.video_final = None
             done = [t for t in seg.takes if self.abs(t.path) and self.abs(t.path).exists()]
-            if len(done) < takes:
+            if len(done) != len(seg.takes) or (chosen_take is not None and chosen_take not in done):
                 seg.takes = done
+                if chosen_take not in done:     # 选中的那条文件没了
+                    chosen_take, seg.picked_by_hand, seg.video_final = None, False, None
+            seg.chosen = done.index(chosen_take) if chosen_take is not None else None
+            pending += [(seg, t) for t in seg.takes if t.qc.get("cer") is None and t.preset != "external"]
+            generated = [t for t in seg.takes if t.preset != "external"]
+            if len(generated) < takes:
                 todo.append(seg)
-        if not todo:
+        if not todo and not pending:
+            self.save()
             return
 
         # A. 提示词（补抽时沿用已有条目的提示词，保证同一段的各条可比；有 .manual.txt 时重新读取）
         pdir = self.dir / "episodes" / ep_id / "prompts"
-        need = {seg.id for seg in todo if not (seg.takes and seg.prompt) or (pdir / f"{seg.id}.manual.txt").exists()}
+        need = {seg.id for seg in todo
+                if not (seg.prompt and any(t.preset != "external" for t in seg.takes)) or (pdir / f"{seg.id}.manual.txt").exists()}
         if need and vcfg.get("refine_prompt_with_llm", True):
             self._gpu("llm")
         for seg in todo:
@@ -385,56 +452,74 @@ class Pipeline:
             seg.prompt = self._compile_prompt(ep, seg, plan)
             self.save()
 
-        # B. 生成（ComfyUI）
-        self._family("video")
-        locked: set[str] = set()
-        new: list[tuple[Segment, Take]] = []
-        for seg in todo:
-            idx = ep.segments.index(seg)
-            prev_last = None
-            if smap[seg.shots[0]][1].method == "continue":
-                ps = ep.segments[idx - 1] if idx > 0 else None
-                if ps is None or not ps.takes:
-                    self.log(f"[video] ! {seg.id} 是续写镜头，但上一段还没有视频，跳过")
-                    continue
-                self._choose(ps, tech_only=True)
-                locked.add(ps.id)       # 续写已经接在这条上，之后不再自动改选
-                prev_last = str(ff.last_frame(self.abs(ps.takes[ps.chosen].path), vdir / f"{seg.id}_prev_last.png"))
-            plan = build_plan(p, ep, seg, self.cfg, str(self.abs(seg.dialogue_track)) if seg.dialogue_track else None, prev_last)
-            seg.refs = to_records(plan)
-            for r in seg.refs:
-                r.path = self.rel(r.path) if Path(r.path).is_absolute() else r.path
-            for i in range(len(seg.takes), takes):
-                seed = _seed(ep_id, seg.id, "take", i)
-                out = vdir / f"{seg.id}_t{i + 1}.mp4"
-                self.log(f"[video] {seg.id} take {i + 1}/{takes}（{plan.mode}, {seg.gen_seconds:.1f}s, seed {seed}）")
-                t0 = time.time()
-                path = self._gen_video(plan, seg.prompt, seg, seed, out, pre, vcfg)
-                take = Take(path=self.rel(path), seed=seed, preset=vcfg.get("preset", "quality"), seconds=round(time.time() - t0, 1))
-                issues = QC.technical(path, seg.planned)
-                if not self.mock and len(seg.shots) > 1:
-                    issues += QC.cuts(path, seg.cut_times)
-                take.qc = {"pass": not any(QC.is_hard(i) for i in issues), "issues": issues, "cer": None}
-                seg.takes.append(take)
-                new.append((seg, take))
+        new: list[tuple[Segment, Take]] = list(pending)
+        try:
+            # B. 生成（ComfyUI）
+            if todo:
+                self._family("video")
+            for seg in todo:
+                idx = ep.segments.index(seg)
+                prev_last = None
+                if smap[seg.shots[0]][1].method == "continue":
+                    ps = ep.segments[idx - 1] if idx > 0 else None
+                    if ps is None or not ps.takes:
+                        self.log(f"[video] ! {seg.id} 是续写镜头，但上一段还没有视频，跳过")
+                        continue
+                    self._choose(ps, tech_only=ps.chosen is None)
+                    if not ps.picked_by_hand:
+                        ps.picked_by_hand = True    # 续写接在这条上了：以后不再自动改选（要换请 pick 后重抽本段）
+                        self.log(f"[video] {ps.id} 锁定 take {ps.chosen + 1}（{seg.id} 从它的结尾续写）")
+                    src = self.abs(ps.takes[ps.chosen].path)
+                    # 成片里上一段只用到 planned 秒（生成的文件更长），所以取 planned 处的那一帧，而不是文件最后一帧
+                    prev_last = str(ff.frame_at(src, max(0.0, min(ps.planned, ff.duration(src)) - 1 / 24),
+                                                vdir / f"{seg.id}_prev_last.png"))
+                plan = build_plan(p, ep, seg, self.cfg, str(self.abs(seg.dialogue_track)) if seg.dialogue_track else None, prev_last)
+                seg.refs = to_records(plan)
+                for r in seg.refs:
+                    r.path = self.rel(r.path) if Path(r.path).is_absolute() else r.path
+                while sum(1 for t in seg.takes if t.preset != "external") < takes:
+                    n = self._next_take_no(seg, vdir)
+                    seed = _seed(ep_id, seg.sig or seg.id, "take", n)
+                    out = vdir / f"{seg.id}_{seg.sig[:6]}_t{n}.mp4" if seg.sig else vdir / f"{seg.id}_t{n}.mp4"
+                    self.log(f"[video] {seg.id} take {n}（{plan.mode}, {seg.gen_seconds:.1f}s, seed {seed}）")
+                    t0 = time.time()
+                    path = self._gen_video(plan, seg.prompt, seg, seed, out, pre, vcfg)
+                    take = Take(path=self.rel(path), seed=seed, preset=vcfg.get("preset", "quality"), seconds=round(time.time() - t0, 1))
+                    issues = QC.technical(path, seg.planned)
+                    if not self.mock and len(seg.shots) > 1:
+                        issues += QC.cuts(path, seg.cut_times)
+                    take.qc = {"pass": not any(QC.is_hard(i) for i in issues), "issues": issues, "cer": None}
+                    seg.takes.append(take)
+                    new.append((seg, take))
+                    self.save()
+        finally:
+            # C. 对白质检（ASR）+ 选优 —— 即使 B 中途出错也把已生成的条处理完，下次不会卡在“有视频但没选条”
+            if any(self._seg_lines(ep, seg) for seg, _ in new):
+                self._gpu("audio")
+            for seg, take in new:
+                try:
+                    self._qc_dialogue(ep, seg, take)
+                except Exception as e:  # noqa: BLE001
+                    self.log(f"[video] ! {seg.id} 对白质检失败：{e}")
                 self.save()
-
-        # C. 对白质检（ASR）+ 选优
-        if any(self._seg_lines(ep, seg) for seg, _ in new):
-            self._gpu("audio")
-        for seg, take in new:
-            self._qc_dialogue(ep, seg, take)
-            self.save()
-        for seg in todo:
-            if not seg.takes:
-                continue
-            if seg.id not in locked:
+            touched = {seg.id: seg for seg in [s for s, _ in new] + todo}
+            for seg in touched.values():
+                if not seg.takes:
+                    continue
                 self._choose(seg)
-            seg.status = "video"
-            bad = [i + 1 for i, t in enumerate(seg.takes) if not t.qc.get("pass")]
-            if bad:
-                self.log(f"[video] {seg.id} 未过质检的条：{bad}（详见 review.html）")
-        self.save()
+                seg.status = "video"
+                bad = [i + 1 for i, t in enumerate(seg.takes) if not t.qc.get("pass")]
+                if bad:
+                    self.log(f"[video] {seg.id} 未过质检的条：{bad}（详见 review.html）")
+            self.save()
+
+    @staticmethod
+    def _next_take_no(seg: Segment, vdir: Path) -> int:
+        """新条目的编号：比现有任何条目（含已删除文件的）都大，避免覆盖文件或复用种子。"""
+        import re as _re
+        nums = [int(m.group(1)) for t in seg.takes for m in [_re.search(r"_[tx](\d+)\.\w+$", t.path)] if m]
+        nums += [int(m.group(1)) for f in vdir.glob(f"{seg.id}_*") for m in [_re.search(r"_[tx](\d+)\.\w+$", f.name)] if m]
+        return max(nums, default=0) + 1
 
     def _dialogue_track(self, ep: Episode, seg: Segment) -> str | None:
         smap = self.project.shot_map(ep)
@@ -444,6 +529,7 @@ class Pipeline:
                 if ln.audio:
                     items.append((self.abs(ln.audio), t0 + (ln.start or 0.0)))
         if not items:
+            seg.dialogue_track = None     # 台词删光了：不能再把旧音轨送给 H3
             return None
         out = self.dir / "episodes" / ep.id / "audio" / f"{seg.id}_dialogue.wav"
         build_track(items, max(seg.gen_seconds, 2.0), out)
@@ -490,13 +576,12 @@ class Pipeline:
             prompt=prompt, seconds=seg.gen_seconds, width=pre["width"], height=pre["height"], mode=mode,
             steps=pre["ref2va_steps"] if mode == "ref2va" else pre["fl2va_steps"],
             scheduler=pre["ref2va_scheduler"] if mode == "ref2va" else pre["fl2va_scheduler"],
-            turbo=pre["turbo"] if not (pre["fast"] and mode == "fl2va") else None,
+            turbo=pre["ref2va_turbo"] if mode == "ref2va" else (None if pre["fast"] else pre["fl2va_turbo"]),
             fast=bool(pre["fast"] and mode == "fl2va"),
             attention=vcfg.get("attention") or None, ref_image_size=vcfg.get("ref_image_size", "match"),
             seed=seed, prefix=f"aidrama/{seg.id}",
+            allow_audio_damage=vcfg.get("preset") == "draft",   # 预演允许 4 步 LoRA 损伤对白音质
         )
-        if job.turbo == "4step" and mode == "ref2va" and plan.refs and any(r.role == "dialogue_track" for r in plan.refs):
-            job.turbo, job.steps = "8step", 8     # 4 步会损伤音频：对白段至少 8 步
         if mode == "fl2va":
             job.first_frame = self._upload(self.abs(plan.first_frame)) if plan.first_frame else None
             job.last_frame = self._upload(self.abs(plan.last_frame)) if plan.last_frame else None
@@ -526,7 +611,8 @@ class Pipeline:
             return self._run(api, out.parent, out.stem, name)[0]
         except ComfyError as e:
             msg = str(e).lower()
-            if job.attention and ("align" in msg or "attention" in msg or "kitchen" in msg):
+            if job.attention and not job.fast and ("kitchen" in msg or "must be aligned" in msg) \
+                    and "out of memory" not in msg:
                 self.log("    ! INT8 注意力报错，改用 pytorch attention 重试")
                 job.attention = None
                 return self._run(build_h3(job), out.parent, out.stem, name)[0]
@@ -586,8 +672,14 @@ class Pipeline:
             raise FileNotFoundError(src)
         vdir = self.dir / "episodes" / ep_id / "segments"
         vdir.mkdir(parents=True, exist_ok=True)
-        dst = vdir / f"{seg.id}_x{len(seg.takes) + 1}{src.suffix.lower() or '.mp4'}"
-        shutil.copy(src, dst)
+        dst = vdir / f"{seg.id}_{seg.sig[:6] or 'ext'}_x{self._next_take_no(seg, vdir)}.mp4"
+        if src.suffix.lower() == ".mp4":
+            shutil.copy(src, dst)
+        else:       # mkv/mov/avi 等统一转成 mp4（ComfyUI 的 LoadVideo 和后续超分只认常见格式）
+            try:
+                ff.run(["-i", str(src), "-c", "copy", "-movflags", "+faststart", str(dst)])
+            except ff.FFmpegError:
+                ff.run(["-i", str(src), "-c:v", "libx264", "-crf", "12", "-c:a", "aac", "-b:a", "320k", str(dst)])
         take = Take(path=self.rel(dst), seed=-1, preset="external")
         issues = QC.technical(dst, seg.planned, expect_audio=False)
         take.qc = {"pass": not any(QC.is_hard(i) for i in issues), "issues": issues, "cer": None}

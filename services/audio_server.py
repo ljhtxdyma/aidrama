@@ -79,8 +79,9 @@ def load_indextts():
     from indextts.infer_v2_5 import IndexTTS2
 
     model_dir = os.path.join(ARGS.indextts_dir, ARGS.indextts_model_dir or "checkpoints")
+    # use_cuda_kernel=False：不现场编译 BigVGAN 的 CUDA 扩展（编译中途被中断会留下锁文件，下次加载卡住）
     return IndexTTS2(cfg_path=os.path.join(model_dir, "config.yaml"), model_dir=model_dir,
-                     use_bf16=True, use_qwen_emo=ARGS.qwen_emo)
+                     use_bf16=True, use_cuda_kernel=False, use_qwen_emo=ARGS.qwen_emo)
 
 
 def load_voicedesign():
@@ -102,15 +103,43 @@ def load_asr():
 LOADERS = {"indextts": load_indextts, "voicedesign": load_voicedesign, "asr": load_asr}
 
 
+LOAD_LOCK = threading.RLock()   # 两个并发的首次请求只加载一次模型；/unload 不会和加载交错
+
+
 def engine(name: str):
     if ARGS.mock:
         return ENGINES.setdefault(name, _Mock())
-    if name not in ENGINES:
-        if name not in ARGS.engines:
-            raise RuntimeError(f"engine '{name}' 未在本服务启用（--engines {','.join(ARGS.engines)}）")
-        print(f"[audio_server] loading {name} ...", flush=True)
-        ENGINES[name] = LOADERS[name]()
-    return ENGINES[name]
+    with LOAD_LOCK:
+        if name not in ENGINES:
+            if name not in ARGS.engines:
+                raise RuntimeError(f"engine '{name}' 未在本服务启用（--engines {','.join(ARGS.engines)}）")
+            print(f"[audio_server] loading {name} ...", flush=True)
+            ENGINES[name] = LOADERS[name]()
+        return ENGINES[name]
+
+
+def _weights_present(path: str) -> bool | None:
+    """本地模型目录里是否真的有权重文件（None = 用的是 HuggingFace 仓库名，首次请求时才下载）。"""
+    if not os.path.isdir(path):
+        return None if "/" in path and not os.path.isabs(path) and not path.startswith(".") else False
+    for _root, _dirs, files in os.walk(path):
+        if any(f.endswith((".safetensors", ".pth", ".bin", ".pt")) for f in files):
+            return True
+    return False
+
+
+def model_checks() -> dict:
+    out = {}
+    for e in ARGS.engines:
+        if e == "indextts":
+            d = os.path.join(ARGS.indextts_dir, ARGS.indextts_model_dir or ("checkpoints_2" if ARGS.indextts_version == "2" else "checkpoints"))
+            out["indextts"] = bool(os.path.exists(os.path.join(d, "config.yaml")) and _weights_present(d))
+        elif e == "voicedesign":
+            out["voicedesign"] = _weights_present(ARGS.voicedesign_model)
+        elif e == "asr":
+            out["asr"] = _weights_present(ARGS.asr_model)
+            out["aligner"] = _weights_present(ARGS.aligner_model)
+    return out
 
 
 LANG_IDX = {"zh": "ZH", "en": "EN", "ja": "JA", "es": "ES", "ar": "AR"}
@@ -179,7 +208,7 @@ def do_align(p: dict) -> dict:
 
 def do_unload(p: dict) -> dict:
     """释放显存：流水线切到 ComfyUI 生成画面前调用；下次请求时自动重新加载（约 10~30 秒）。"""
-    with LOCK:
+    with LOCK, LOAD_LOCK:
         names = list(ENGINES)
         ENGINES.clear()
         import gc
@@ -207,7 +236,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "engines": ARGS.engines, "loaded": list(ENGINES)})
+            self._send(200, {"ok": True, "engines": ARGS.engines, "loaded": list(ENGINES),
+                             "models": {} if ARGS.mock else model_checks()})
         else:
             self._send(404, {"error": "not found"})
 

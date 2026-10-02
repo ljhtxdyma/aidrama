@@ -82,7 +82,7 @@ ad cast projects/myshow
 **返工：**
 
 - 只重做某一个角色：把 `project.yaml` 里该角色的 `refs:` 清空（或删掉对应文件路径），再运行 `ad cast`。已有的图会跳过。
-- 全部重做：`ad cast projects/myshow --force`。
+- 全部重做：`ad cast projects/myshow --force`（你自己提供的录音不会被覆盖）。
 - 想要另一张脸：修改 `appearance_en`（种子由角色 id 决定，描述变了，脸就会变），或者直接用自己的图替换 `front.png`，再删掉 `sheet_*` 引用，让它重新生成三视图。
 - 声音不满意：修改 `voice.description` 或 `voice.design_text`（试音文本），清空 `voice.ref_audio` 后重跑。
   也可以把**获得授权**的真人录音（10–15 秒，干净无底噪）放进去，作为 `ref_audio`。
@@ -104,7 +104,8 @@ IndexTTS-2.5 用角色音色逐句配音：
 
 **返工：**
 
-- 改台词文字或读音标注，然后把该句的 `audio:` 清空，重跑 `ad voice`；`--force` 会重配全部。
+- 改了台词、读音标注、情绪后直接重跑 `ad voice`：配音文件名里带着这些内容的哈希，改过的句子会自动重配，其他句子不受影响（插入、删除台词也不会覆盖别的句子）。`--force` 会重配全部。
+- 想用真人录音：把该句的 `audio:` 指向你的音频文件即可，流水线不会覆盖它（`--force` 除外）。
 - 语气不对：换一个 `emotion`，或写 `emo_vector`，或配一段情绪参考音频。
 
 ## 5. 规划生成段
@@ -126,6 +127,9 @@ ad plan projects/myshow ep01
 ```
 
 想调整分段，可以改镜头时长或转场，或者把某个镜头的 `method` 改成 `flf2v`/`t2v`，让它单独成段。
+
+- 某个镜头的台词按真实配音排下来超过 15 秒（H3 单次上限），`plan` 会直接报错并指出镜头，请把台词拆到两个镜头里。
+- 重新规划时，内容没变的段会保留已经抽好的视频，即使段号因为前面的改动变了（按镜头内容签名匹配，人工提示词 `.manual.txt` 也会跟着改名）；内容变了的段（改了提示词、台词、关键帧）会重新生成。
 可调参数在 `video.max_segment_seconds`、`video.max_cuts_per_segment`。
 
 ## 6. 关键帧
@@ -169,7 +173,11 @@ ad video projects/myshow ep01 --preset balanced  # 先快速过一遍
    - 每条生成完立即检查黑场、冻帧和时长。
 3. **对白回读质检**：用 Qwen3-ASR 识别每条视频里的对白，和剧本比对字错率（默认 >15% 判不合格）。之后自动选出最好的一条。
 
-产物在 `episodes/ep01/segments/<段>_t<n>.mp4`；实际提交给 ComfyUI 的工作流保存在 `graphs/`，可以直接拖进 ComfyUI 复现。
+产物在 `episodes/ep01/segments/<段>_<签名>_t<n>.mp4`；实际提交给 ComfyUI 的工作流保存在 `graphs/`，可以直接拖进 ComfyUI 复现。
+
+- 中途出错或按了 Ctrl+C：已经生成的条会先完成对白质检和选条；直接重跑同一条命令即可从断点继续。
+- `--force` 重抽时，用 `add-take` 登记的外部视频会保留。
+- `continue` 续写段：上一段被接上的那一条会自动锁定（之后补抽不会自动改选它）。想换上一段的条，先 `pick`，再对续写段 `--only <段> --force` 重抽。
 
 ## 8. 审片与选条
 

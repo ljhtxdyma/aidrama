@@ -45,9 +45,16 @@ def human(n: float) -> str:
     return f"{n:.1f}TB"
 
 
+def _too_small(size: int, expect_gb: float | None) -> bool:
+    return bool(expect_gb) and size < expect_gb * 1e9 * 0.85
+
+
 def download(url: str, dst: Path, expect_gb: float | None) -> None:
-    part = dst.with_suffix(dst.suffix + ".part")
-    headers = {"User-Agent": "aidrama-downloader/1.0"}
+    """下载到 <文件>.part，校验通过才改名。续传只在同一个来源内进行（.part 带来源主机名），
+    返回网页/JSON/LFS 指针或体积明显不对时删掉 .part，绝不把坏文件当成模型。"""
+    host = url.split("/")[2]
+    part = dst.with_name(dst.name + f".{host}.part")
+    headers = {"User-Agent": "aidrama-downloader/1.1"}
     if "huggingface.co" in url or "hf-mirror.com" in url:
         tok = os.environ.get("HF_TOKEN")
         if tok:
@@ -58,16 +65,24 @@ def download(url: str, dst: Path, expect_gb: float | None) -> None:
     if pos:
         headers["Range"] = f"bytes={pos}-"
     with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
-        if r.status_code == 416:  # 已经下完
-            part.rename(dst)
-            return
+        if r.status_code == 416:   # 服务器说已经下完：核对总大小再收下
+            total = r.headers.get("Content-Range", "").rpartition("/")[2]
+            if (total.isdigit() and int(total) == pos) and not _too_small(pos, expect_gb):
+                part.rename(dst)
+                return
+            part.unlink(missing_ok=True)
+            raise RuntimeError("续传状态异常（416），已删除临时文件，将重新下载")
         if r.status_code not in (200, 206):
             raise RuntimeError(f"HTTP {r.status_code}")
+        ctype = r.headers.get("Content-Type", "")
+        if ctype.startswith("text/") or "json" in ctype or "html" in ctype:
+            part.unlink(missing_ok=True)
+            raise RuntimeError(f"返回的是 {ctype or '网页'}（可能需要登录、地址错误或被限流）")
         if r.status_code == 200 and pos:
             pos = 0  # 服务器不支持续传，重新下载
         total = int(r.headers.get("Content-Length", 0)) + pos
-        if "text/html" in r.headers.get("Content-Type", ""):
-            raise RuntimeError("返回的是网页（可能需要登录或地址错误）")
+        if total and _too_small(total, expect_gb):
+            raise RuntimeError(f"服务器报告的大小只有 {human(total)}，与清单（约 {expect_gb} GB）不符")
         mode = "ab" if pos else "wb"
         t0, done, last = time.time(), pos, 0.0
         with open(part, mode) as f:
@@ -81,12 +96,20 @@ def download(url: str, dst: Path, expect_gb: float | None) -> None:
                     print(f"\r    {human(done)}/{human(total) if total else '?'} {pct} {human(speed)}/s   ", end="", flush=True)
     print()
     size = part.stat().st_size
-    if expect_gb and size < expect_gb * 1e9 * 0.85:
-        raise RuntimeError(f"文件偏小（{human(size)}，期望约 {expect_gb} GB），保留 .part 以便续传")
+    if (total and size != total) or _too_small(size, expect_gb):
+        if total and size < total:      # 正常断流：保留 .part，下次续传
+            raise RuntimeError(f"下载中断（{human(size)}/{human(total)}），重跑会自动续传")
+        part.unlink(missing_ok=True)
+        raise RuntimeError(f"文件大小不对（{human(size)}，期望约 {expect_gb} GB），已删除，将重新下载")
     part.rename(dst)
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):   # 重定向到文件时（Windows GBK）不要因为 ✓ 字符崩溃
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--comfy", required=False, help="ComfyUI 根目录（里面有 models/）")
     ap.add_argument("--groups", default="core", help="逗号分隔：core,fast,lipsync,animate,qwen21,control 或 all")
@@ -96,7 +119,11 @@ def main() -> int:
     a = ap.parse_args()
 
     man = yaml.safe_load(open(a.manifest, encoding="utf-8"))
-    groups = None if a.groups == "all" else set(a.groups.split(","))
+    known = {f["group"] for f in man["files"]}
+    groups = None if a.groups.strip() == "all" else {g.strip() for g in a.groups.replace(" ", ",").split(",") if g.strip()}
+    if groups is not None and (not groups or groups - known):
+        print(f"未知的模型组：{sorted(groups - known) or a.groups!r}；可选：{', '.join(sorted(known))} 或 all")
+        return 2
     files = [f for f in man["files"] if groups is None or f["group"] in groups]
     seen, uniq = set(), []
     for f in files:
@@ -121,8 +148,13 @@ def main() -> int:
     for i, f in enumerate(uniq, 1):
         dst = models / f["dir"] / f["file"]
         if dst.exists() and dst.stat().st_size > 0:
-            print(f"[{i}/{len(uniq)}] ✓ 已存在 {f['dir']}/{f['file']}")
-            continue
+            if _too_small(dst.stat().st_size, f.get("size_gb")):
+                bad = dst.with_name(dst.name + ".bad")
+                dst.replace(bad)
+                print(f"[{i}/{len(uniq)}] ! {f['dir']}/{f['file']} 只有 {human(bad.stat().st_size)}，明显不完整，已改名为 .bad 并重新下载")
+            else:
+                print(f"[{i}/{len(uniq)}] ✓ 已存在 {f['dir']}/{f['file']}")
+                continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         print(f"[{i}/{len(uniq)}] ↓ {f['dir']}/{f['file']}（{f.get('size_gb', '?')} GB）")
         for url in candidates(f["url"], a.source):
@@ -135,8 +167,8 @@ def main() -> int:
                 except Exception as e:  # noqa: BLE001
                     print(f"\n    失败：{e}")
                     time.sleep(3 * (attempt + 1))
-                    if "HTTP 404" in str(e) or "HTTP 401" in str(e) or "网页" in str(e):
-                        break
+                    if any(k in str(e) for k in ("HTTP 404", "HTTP 401", "HTTP 403", "返回的是", "大小只有")):
+                        break       # 这个来源没有/不给这个文件：换下一个来源
             if dst.exists():
                 break
         if not dst.exists():

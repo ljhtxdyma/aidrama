@@ -77,14 +77,23 @@ def doctor(project: str | None = None, comfy_url: str | None = None) -> bool:
         try:
             h = net.get(cfg["audio"][key].rstrip("/") + "/health", timeout=5).json()
             _ok(True, f"{what} {cfg['audio'][key]}  engines={h.get('engines')}")
+            for m, present in (h.get("models") or {}).items():
+                if present is False:
+                    allok &= _ok(False, f"    {m} 的权重文件不在（下载中断过？重跑安装脚本会补全）")
         except Exception:  # noqa: BLE001
             allok &= _ok(False, f"{what} {cfg['audio'][key]} 未启动（见 docs/02-安装部署.md 第 5 步）")
 
     print("[LLM]")
     try:
-        headers = {"Authorization": f"Bearer {cfg['llm'].get('api_key')}"} if cfg["llm"].get("api_key") and not str(cfg["llm"]["api_key"]).startswith("env:") else {}
+        from .llm import LLMConfig
+
+        key = LLMConfig.from_dict(cfg["llm"]).api_key        # 会解析 env:变量名
+        if str(cfg["llm"].get("api_key", "")).startswith("env:") and not key:
+            allok &= _ok(False, f"环境变量 {cfg['llm']['api_key'][4:]} 没有设置（LLM 的 API key）")
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         r = net.get(cfg["llm"]["base_url"].rstrip("/") + "/models", timeout=10, headers=headers)
-        allok &= _ok(r.status_code < 500, f"{cfg['llm']['base_url']} 可访问")
+        allok &= _ok(r.status_code < 400, f"{cfg['llm']['base_url']} " + ("可访问" if r.status_code < 400 else
+                     f"返回 HTTP {r.status_code}（401/403 多半是 API key 不对，404 多半是 base_url 少了 /v1）"))
         try:
             ids = [m.get("id", "") for m in r.json().get("data", [])]
         except Exception:  # noqa: BLE001

@@ -48,3 +48,9 @@ def test_audio_client_roundtrip(server, tmp_path: Path):
     assert [i["text"] for i in items] == ["这", "封", "信"]
     track = build_track([(clean, 0.35), (clean, 4.0)], 8.0, tmp_path / "track.wav")
     assert ff.duration(track) == pytest.approx(8.0, abs=0.05)
+
+
+def test_powershell_scripts_have_utf8_bom():
+    # Windows PowerShell 5.1 没有 BOM 时按系统代码页读脚本，中文会变乱码甚至无法解析
+    for f in (ROOT / "install" / "windows").glob("*.ps1"):
+        assert f.read_bytes()[:3] == b"\xef\xbb\xbf", f.name

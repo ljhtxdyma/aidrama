@@ -42,27 +42,29 @@ if (-not $env:HF_ENDPOINT) {
     catch { $env:HF_ENDPOINT = "https://hf-mirror.com"; Write-Host "  huggingface.co 不可达，使用 HF_ENDPOINT=$env:HF_ENDPOINT" }
 }
 
+$started = @{}
+function Launch($name, $py, $argLine, $dir) {
+    if (-not (Test-Path $py)) { Write-Host "  [!]  跳过 $name：找不到 $py（安装时跳过了这一步？）" -ForegroundColor Yellow; return }
+    Start-Process -FilePath $py -ArgumentList $argLine -WorkingDirectory $dir
+    $started[$name] = $true
+}
 if ($Only -in @("all", "comfy")) {
-    $py = Join-Path $S["COMFY_DIR"] ".venv\Scripts\python.exe"
-    Start-Process -FilePath $py -ArgumentList ("main.py " + $ComfyArgs) -WorkingDirectory $S["COMFY_DIR"]
+    Launch "ComfyUI" (Join-Path $S["COMFY_DIR"] ".venv\Scripts\python.exe") ("main.py " + $ComfyArgs) $S["COMFY_DIR"]
 }
 if ($Only -in @("all", "audio")) {
     $server = Join-Path $Repo "services\audio_server.py"
-    $ipy = Join-Path $S["INDEXTTS_DIR"] ".venv\Scripts\python.exe"
-    Start-Process -FilePath $ipy -WorkingDirectory $S["INDEXTTS_DIR"] -ArgumentList (
-        "$(Q $server) --engines indextts --port 9001 --indextts-dir $(Q $S["INDEXTTS_DIR"]) --indextts-version 2.5")
-    $qpy = Join-Path $S["QWEN_AUDIO_DIR"] ".venv\Scripts\python.exe"
+    Launch "IndexTTS" (Join-Path $S["INDEXTTS_DIR"] ".venv\Scripts\python.exe") (
+        "$(Q $server) --engines indextts --port 9001 --indextts-dir $(Q $S["INDEXTTS_DIR"]) --indextts-version 2.5") $S["INDEXTTS_DIR"]
     $M = Join-Path $S["QWEN_AUDIO_DIR"] "models"
-    Start-Process -FilePath $qpy -WorkingDirectory $S["QWEN_AUDIO_DIR"] -ArgumentList (
+    Launch "Qwen" (Join-Path $S["QWEN_AUDIO_DIR"] ".venv\Scripts\python.exe") (
         "$(Q $server) --engines voicedesign,asr --port 9002 " +
         "--voicedesign-model $(Q (Join-Path $M 'Qwen3-TTS-12Hz-1.7B-VoiceDesign')) " +
-        "--asr-model $(Q (Join-Path $M 'Qwen3-ASR-1.7B')) --aligner-model $(Q (Join-Path $M 'Qwen3-ForcedAligner-0.6B'))")
+        "--asr-model $(Q (Join-Path $M 'Qwen3-ASR-1.7B')) --aligner-model $(Q (Join-Path $M 'Qwen3-ForcedAligner-0.6B'))") $S["QWEN_AUDIO_DIR"]
 }
 
 Write-Host "等待服务启动…"
-if ($Only -in @("all", "comfy")) { Wait-Http "http://127.0.0.1:8188/system_stats" "ComfyUI" 180 | Out-Null }
-if ($Only -in @("all", "audio")) {
-    Wait-Http "http://127.0.0.1:9001/health" "IndexTTS 服务" 60 | Out-Null
-    Wait-Http "http://127.0.0.1:9002/health" "Qwen 音频服务" 60 | Out-Null
-}
+if ($started["ComfyUI"]) { Wait-Http "http://127.0.0.1:8188/system_stats" "ComfyUI" 180 | Out-Null }
+if ($started["IndexTTS"]) { Wait-Http "http://127.0.0.1:9001/health" "IndexTTS 服务" 60 | Out-Null }
+if ($started["Qwen"]) { Wait-Http "http://127.0.0.1:9002/health" "Qwen 音频服务" 60 | Out-Null }
+$env:PYTHONUTF8 = "1"
 & (Join-Path $Repo ".venv\Scripts\python.exe") -m aidrama doctor

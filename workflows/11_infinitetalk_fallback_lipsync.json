@@ -97,7 +97,7 @@
    "resize_type": "scale dimensions",
    "scale_method": "area",
    "resize_type.width": 480,
-   "resize_type.height": 848,
+   "resize_type.height": 832,
    "resize_type.crop": "center"
   }
  },
@@ -126,7 +126,7 @@
     0
    ],
    "width": 480,
-   "height": 848,
+   "height": 832,
    "length": 81,
    "audio_encoder_output_1": [
     "10",

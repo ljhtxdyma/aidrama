@@ -33,6 +33,11 @@ done
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$STACK"; STACK="$(cd "$STACK" && pwd)"
 COMFY="$STACK/ComfyUI"; INDEXTTS="$STACK/index-tts"; QWEN_AUDIO="$STACK/qwen-audio"
+FAILED=()
+write_stack_env() {   # 用 %q 转义，路径里有空格也能被 start_all.sh 正确 source
+  { printf 'STACK_DIR=%q\n' "$STACK"; printf 'COMFY_DIR=%q\n' "$COMFY"
+    printf 'INDEXTTS_DIR=%q\n' "$INDEXTTS"; printf 'QWEN_AUDIO_DIR=%q\n' "$QWEN_AUDIO"; } > "$REPO/.stack.env"
+}
 step() { printf '\n\033[36m==== %s ====\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m[OK]\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m[!]\033[0m  %s\n' "$*"; }
@@ -48,11 +53,14 @@ TORCH_CU128="https://download.pytorch.org/whl/cu128"
 # ---------------------------------------------------------------- 0
 step "0/8 硬件与磁盘"
 if command -v nvidia-smi >/dev/null; then
-  gpu="$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | head -1)"
-  ok "GPU: $gpu"
-  drv="$(echo "$gpu" | cut -d, -f2 | tr -d ' ' | cut -d. -f1)"
-  (( drv < 580 )) && warn "驱动 $drv < 580：sudo ubuntu-drivers install 或 sudo apt install nvidia-driver-580-open（Blackwell 必须用 -open 内核模块）"
-  grep -qi "open" /proc/driver/nvidia/version 2>/dev/null || warn "当前不是 open 内核模块驱动；RTX 50 系需要 nvidia-driver-xxx-open"
+  if gpu="$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1 | head -1)" && [[ "$gpu" == *,* ]]; then
+    ok "GPU: $gpu"
+    drv="$(echo "$gpu" | cut -d, -f2 | tr -d ' ' | cut -d. -f1)"
+    (( ${drv:-0} < 580 )) && warn "驱动 $drv < 580：sudo ubuntu-drivers install 或 sudo apt install nvidia-driver-580-open（Blackwell 必须用 -open 内核模块）"
+    grep -qi "open" /proc/driver/nvidia/version 2>/dev/null || warn "当前不是 open 内核模块驱动；RTX 50 系需要 nvidia-driver-xxx-open"
+  else
+    warn "nvidia-smi 运行失败（常见原因：升级驱动后没重启）：$gpu"
+  fi
 else
   warn "找不到 nvidia-smi，请先安装 NVIDIA 驱动（nvidia-driver-580-open 或更新）"
 fi
@@ -69,7 +77,9 @@ if (( ${#need_apt[@]} )); then
   sudo apt-get update && sudo apt-get install -y "${need_apt[@]}"
 fi
 if ! command -v uv >/dev/null; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh || python3 -m pip install --user uv
+  curl -LsSf https://astral.sh/uv/install.sh | sh \
+    || python3 -m pip install --user --break-system-packages uv ${UV_DEFAULT_INDEX:+-i "$UV_DEFAULT_INDEX"} \
+    || { echo "无法安装 uv：请 sudo apt install python3-pip 后重试，或参考 https://docs.astral.sh/uv/"; exit 1; }
   export PATH="$HOME/.local/bin:$PATH"
 fi
 ok "uv $(uv --version)"
@@ -82,6 +92,8 @@ step "2/8 ComfyUI $COMFY_TAG + PyTorch cu130"
 uv pip install --python "$COMFY/.venv/bin/python" torch torchvision torchaudio --index-url "$TORCH_CU130"
 uv pip install --python "$COMFY/.venv/bin/python" -r "$COMFY/requirements.txt"
 "$COMFY/.venv/bin/python" -c "import torch;print('  torch', torch.__version__, 'cuda', torch.version.cuda, 'available', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
+"$COMFY/.venv/bin/python" -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 3)" \
+  || warn "PyTorch 看不到 GPU：请安装/升级 nvidia-driver-580-open 并重启后重跑本脚本（否则 ComfyUI 会用 CPU，极慢）"
 
 # ---------------------------------------------------------------- 3
 step "3/8 aidrama 编排器"
@@ -93,6 +105,7 @@ exec "$(cd "$(dirname "$0")" && pwd)/.venv/bin/python" -m aidrama "$@"
 EOS
 chmod +x "$REPO/aidrama.sh"
 ok "命令入口：$REPO/aidrama.sh"
+write_stack_env     # 尽早写：后面任何一步失败，start_all / stop_all 也能用
 
 # ---------------------------------------------------------------- 4
 step "4/8 字幕字体（思源黑体 SC）"
@@ -111,12 +124,12 @@ else ok "已存在"; fi
 # ---------------------------------------------------------------- 5
 step "5/8 ComfyUI 模型（分组：$GROUPS_，来源：$SOURCE）"
 if (( SKIP_MODELS )); then warn "按参数跳过"; else
-  "$REPO/.venv/bin/python" "$REPO/scripts/download_models.py" --comfy "$COMFY" --groups "$GROUPS_" --source "$SOURCE"
+  "$REPO/.venv/bin/python" "$REPO/scripts/download_models.py" --comfy "$COMFY" --groups "$GROUPS_" --source "$SOURCE" \
+    || { warn "部分模型没下载成功；安装继续，稍后重跑会自动续传"; FAILED+=("ComfyUI 模型"); }
 fi
 
-get_repo() {  # get_repo <repo_id> <dir>
+get_repo() {  # get_repo <repo_id> <dir>；每次都调用下载命令：完整的文件会跳过，中断的会补全
   local id="$1" dir="$2"
-  if [[ -f "$dir/config.json" || -f "$dir/config.yaml" ]]; then ok "已存在 $dir"; return; fi
   local order=(huggingface modelscope); [[ "$SOURCE" == "modelscope" ]] && order=(modelscope huggingface)
   for s in "${order[@]}"; do
     if [[ "$s" == modelscope ]]; then
@@ -126,7 +139,8 @@ get_repo() {  # get_repo <repo_id> <dir>
     fi
     warn "$s 下载 $id 失败，换下一个来源"
   done
-  echo "无法下载 $id"; return 1
+  warn "无法下载 $id，安装继续；稍后重跑本脚本会补全"
+  FAILED+=("$id")
 }
 
 # ---------------------------------------------------------------- 6
@@ -169,14 +183,10 @@ fi
 
 # ---------------------------------------------------------------- 8
 step "8/8 写入路径配置 + 自检"
-cat > "$REPO/.stack.env" <<EOF
-STACK_DIR=$STACK
-COMFY_DIR=$COMFY
-INDEXTTS_DIR=$INDEXTTS
-QWEN_AUDIO_DIR=$QWEN_AUDIO
-EOF
+write_stack_env
 "$REPO/.venv/bin/python" -m aidrama fetch-guides || warn "H3 官方提示词指南下载失败（不影响运行）"
 "$REPO/.venv/bin/python" -m pytest -q "$REPO/tests" -x
+if (( ${#FAILED[@]} )); then warn "以下内容没有下载成功，请稍后重跑本脚本（会自动续传）：${FAILED[*]}"; fi
 ok "安装完成。下一步："
 echo "   1) 启动服务：  bash install/linux/start_all.sh"
 echo "   2) 体检：      ./aidrama.sh doctor && ./aidrama.sh smoke   （真机冒烟测试，约 10~15 分钟）"

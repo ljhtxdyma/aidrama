@@ -46,7 +46,10 @@ def test_h3_limits():
     assert H3Job(prompt="x", mode="ref2va", ref_images=[f"{i}.png" for i in range(10)]).check()
     assert H3Job(prompt="x", mode="fl2va", seconds=16).check()
     assert H3Job(prompt="x", mode="ref2va", ref_images=["a.png"], ref_audios=["d.wav"], turbo="4step").check()
-    assert H3Job(prompt="x", mode="ref2va", ref_images=["a.png"], ref_audios=["d.wav"], turbo="8step").check() == []
+    assert H3Job(prompt="x", mode="ref2va", ref_images=["a.png"], ref_audios=["d.wav"], turbo="8step").check()
+    assert H3Job(prompt="x", mode="ref2va", ref_images=["a.png"], ref_audios=["d.wav"], turbo="4step",
+                 allow_audio_damage=True).check() == []
+    assert H3Job(prompt="x", mode="ref2va", ref_images=["a.png"], ref_audios=["d.wav"]).check() == []
     with pytest.raises(ValueError):
         build_h3(H3Job(prompt="x", mode="fl2va", seconds=16))
 
@@ -55,6 +58,9 @@ def test_h3_fast_and_turbo(object_info):
     for kw in ({"fast": True, "mode": "fl2va", "first_frame": "a.png"}, {"turbo": "8step", "mode": "fl2va"}):
         api = build_h3(H3Job(prompt="x", seconds=5, **kw))
         assert _errors(api, object_info) == []
+    fast = build_h3(H3Job(prompt="x", seconds=5, fast=True, mode="fl2va", attention=None))
+    vsa = [n for n in fast.values() if n["class_type"] == "BlockSparseAttention"]
+    assert vsa and vsa[0]["inputs"]["selection"] == "vsa"           # FastH3 必须配 VSA（官方模板）
 
 
 def test_validator_catches_mistakes(object_info):

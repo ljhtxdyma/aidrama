@@ -13,15 +13,15 @@ DEFAULT = ROOT / "configs" / "default.yaml"
 
 # 画质预设 —— 只影响视频生成阶段
 PRESETS: dict[str, dict[str, Any]] = {
-    # 成片：H3 不加速，Ref2VA 25 步 / FL2VA 20 步，INT8 注意力（实测身份与口型无损，约 2 倍提速）
-    "quality": {"fl2va_steps": 20, "ref2va_steps": 25, "turbo": None, "fast": False,
+    # 成片：H3 不加速，FL2VA 20 步 simple / Ref2VA 25 步 beta（参考图多时官方建议 beta），INT8 注意力
+    "quality": {"fl2va_steps": 20, "ref2va_steps": 25, "fl2va_turbo": None, "ref2va_turbo": None, "fast": False,
                 "fl2va_scheduler": "simple", "ref2va_scheduler": "beta", "width": 768, "height": 1344},
-    # 平衡：官方 Turbo LoRA 8 步（对白镜头不要用 4 步）
-    "balanced": {"fl2va_steps": 8, "ref2va_steps": 8, "turbo": "8step", "fast": False,
-                 "fl2va_scheduler": "simple", "ref2va_scheduler": "simple", "width": 768, "height": 1344},
-    # 预演：FastH3 8 步 / ref2va 4 步 LoRA，低分辨率，只用来看调度和表演
-    "draft": {"fl2va_steps": 8, "ref2va_steps": 4, "turbo": "4step", "fast": True,
-              "fl2va_scheduler": "simple", "ref2va_scheduler": "simple", "width": 480, "height": 864},
+    # 平衡：FL2VA 用官方 Turbo 8 步 LoRA；Ref2VA 官方只有 4 步 LoRA 且会损伤音频，所以不用 LoRA、减到 16 步
+    "balanced": {"fl2va_steps": 8, "ref2va_steps": 16, "fl2va_turbo": "8step", "ref2va_turbo": None, "fast": False,
+                 "fl2va_scheduler": "simple", "ref2va_scheduler": "beta", "width": 768, "height": 1344},
+    # 预演：FL2VA 用 FastH3（8 步 + VSA 稀疏注意力），Ref2VA 用 4 步 LoRA；低分辨率（4:7，与关键帧同比例），只看调度和表演
+    "draft": {"fl2va_steps": 8, "ref2va_steps": 4, "fl2va_turbo": None, "ref2va_turbo": "4step", "fast": True,
+              "fl2va_scheduler": "simple", "ref2va_scheduler": "simple", "width": 512, "height": 896},
 }
 
 

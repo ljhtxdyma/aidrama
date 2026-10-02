@@ -62,6 +62,7 @@ class H3Job:
     ref_image_size: Literal["match", "max"] = "match"
     seed: int = 0
     prefix: str = "aidrama/h3"
+    allow_audio_damage: bool = False           # 预演时允许 4 步 LoRA + 对白音频
 
     @property
     def length(self) -> int:
@@ -85,8 +86,10 @@ class H3Job:
             errs.append("参考数量超限：图≤9 视频≤3 音频≤3")
         if self.ref_audios and not (self.ref_images or self.ref_videos):
             errs.append("音频参考不能单独使用，至少还要一张参考图或一段参考视频")
-        if self.turbo == "4step" and (self.ref_audios or any(g.audio for g in self.guides)):
-            errs.append("4 步 turbo 会损伤音频，对白镜头请用 8step 或不用 turbo")
+        if self.turbo == "4step" and (self.ref_audios or any(g.audio for g in self.guides)) and not self.allow_audio_damage:
+            errs.append("4 步 turbo 会损伤音频：对白镜头成片请不用 turbo（预演可设 allow_audio_damage=True）")
+        if self.turbo == "8step" and self.mode == "ref2va":
+            errs.append("官方没有 ref2v 8 步 LoRA：ref2va 只能用 4step 或不用 turbo")
         for g in self.guides:
             if g.frame_idx >= self.length:
                 errs.append(f"guide frame_idx {g.frame_idx} 超出视频长度 {self.length}")
@@ -111,14 +114,18 @@ def build_h3(job: H3Job) -> dict:
         lora = {
             ("fl2va", "8step"): M.H3_TURBO_FL2V_8,
             ("fl2va", "4step"): M.H3_TURBO_FL2V_4,
-            ("ref2va", "4step"): M.H3_TURBO_REF2V_4,
-            ("ref2va", "8step"): M.H3_TURBO_REF2V_4,  # 官方暂无 ref2v 8 步 LoRA，用 4 步 LoRA 跑 8 步
+            ("ref2va", "4step"): M.H3_TURBO_REF2V_4,   # 官方只有 ref2v 4 步 LoRA（没有 8 步版）
         }[(job.mode, job.turbo)]
         model = g.add("LoraLoaderModelOnly", "Turbo LoRA", model=model, lora_name=lora, strength_model=1.0).out
     if job.fast:
         model = g.add("MiniMaxH3SigmaShift", model=model, shift_video=10.0, shift_audio=3.0).out
-    if job.attention:
-        model = g.add("ModelAttentionBackend", model=model, attention=job.attention).out
+    if job.attention or job.fast:
+        model = g.add("ModelAttentionBackend", model=model, attention=job.attention or "comfy kitchen attention").out
+    if job.fast:
+        # FastH3 是按 80% 稀疏的 Video Sparse Attention 蒸馏的，必须配 VSA（参数照搬官方 fasth3 模板）
+        model = g.add("BlockSparseAttention", model=model, selection="vsa", **{"selection.keep_percent": 10.0},
+                      start_percent=0.2, end_percent=1.0, dense_blocks="", min_tokens=12288, extra_tokens=256,
+                      sink_conditioning="exact_kv_and_rows", verbose=False).out
 
     def load_image(name: str):
         return g.add("LoadImage", image=name)[0]

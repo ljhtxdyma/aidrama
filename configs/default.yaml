@@ -34,11 +34,11 @@ audio:
   max_cer: 0.15                       # 对白质检：识别结果与剧本的字错率阈值
 
 image:
-  width: 1088                         # 关键帧 4:7（与 H3 竖屏画布 768x1344 同比例）
-  height: 1904
+  width: 896                          # 关键帧 4:7（与 H3 竖屏画布 768x1344 同比例），约 1.4MP（Qwen 2512/2511 的训练尺寸在 1~1.5MP）
+  height: 1568
   steps: 25
-  sheet_width: 1024                   # 定妆照
-  sheet_height: 1536
+  sheet_width: 1056                   # 定妆照（Qwen-Image-2512 官方 2:3 原生尺寸）；三视图设定图固定 1344x896
+  sheet_height: 1584
   enhance: false                      # 是否启用 Qwen Image 2.1 官方提示词扩写模型（额外 8.8GB）
 
 video:

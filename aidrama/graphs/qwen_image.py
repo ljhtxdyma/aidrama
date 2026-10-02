@@ -23,8 +23,8 @@ _PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 @dataclass
 class QwenImageJob:
     prompt: str
-    width: int = 1088
-    height: int = 1920
+    width: int = 896
+    height: int = 1568
     refs: list[str] = field(default_factory=list)   # ComfyUI input 名称；空 = 文生图
     negative: str = ""
     steps: int = 25

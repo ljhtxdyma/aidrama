@@ -156,7 +156,17 @@ def cmd_doctor(a):
     sys.exit(0 if ok else 1)
 
 
+def _safe_console() -> None:
+    """Windows 控制台输出被重定向时默认用 GBK/cp1252，遇到 ✓ ✗ 等字符会直接崩溃：改成替换而不是报错。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv=None):
+    _safe_console()
     ap = argparse.ArgumentParser(prog="aidrama", description="本地 AI 短剧流水线（RTX 5090 / ComfyUI 0.38 / MiniMax H3）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 

@@ -5,7 +5,7 @@
 
 参数取自 ComfyUI 官方模板 image_qwen_Image_2512 / image_qwen_image_edit_2511_int8：
   2512 T2I : ModelSamplingAuraFlow(3.1) → KSampler euler/simple，50 步，cfg 4，官方中文负向词
-  2511 Edit: ModelSamplingAuraFlow(3.1) → CFGNorm(1.0) → KSampler euler/simple，40 步，cfg 3；
+  2511 Edit: ModelSamplingAuraFlow(3.1) → CFGNorm(1.0) → KSampler euler/simple，40 步，cfg 4（模板里 KSampler 显示 3，但实际由 CFG 开关链接的 4.0 覆盖）；
              TextEncodeQwenImageEditPlus 最多 3 张参考（image1~3），FluxKontextMultiReferenceLatentMethod(index_timestep_zero)
              可选 Lightning 4 步 LoRA（cfg 1）
 """
@@ -59,10 +59,10 @@ def build_qwen2512_t2i(job: QwenT2IJob) -> dict:
 class QwenEditJob:
     prompt: str                      # 用 Picture 1 / Picture 2 / Picture 3（或 图1/图2/图3）指代参考图
     refs: list[str] = field(default_factory=list)   # ≤3 张，ComfyUI input 名；第 1 张放身份锚点
-    width: int = 1088                # 输出尺寸（0 = 跟随第 1 张参考图）
-    height: int = 1904
+    width: int = 896                 # 输出尺寸（0 = 跟随第 1 张参考图）；官方按 ~1MP 训练，4:7 取 896x1568（1.4MP）
+    height: int = 1568
     steps: int = 40
-    cfg: float = 3.0
+    cfg: float = 4.0
     lightning: bool = False
     seed: int = 0
     prefix: str = "aidrama/img"

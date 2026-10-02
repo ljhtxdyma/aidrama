@@ -68,6 +68,7 @@ class CutSpec:
     end_state: str = ""
     sfx: str = ""
     keyframe_label: Optional[str] = None                   # "<Picture 2>"（Ref2VA 多镜头锚点）
+    characters: list[str] = field(default_factory=list)    # 画面内出现的角色 id（用于 retention 的出场镜头列表）
 
 
 @dataclass
@@ -116,6 +117,13 @@ def _lc_first(s: str) -> str:
     return s
 
 
+def effective_end(seconds: float) -> float:
+    """H3 把时长对齐到 17k+5 帧，尾帧钉在最后一帧：提示词里的“S.SS 秒”要写实际的尾帧时间。"""
+    n = max(5, round(seconds * 24))
+    n += (5 - n % 17) % 17
+    return (n - 1) / 24
+
+
 def ts(t: float) -> str:
     m = int(t // 60)
     return f"{m:02d}:{t - 60 * m:06.3f}"
@@ -134,17 +142,23 @@ def _cut_dialogue(cut: CutSpec, spec: SegmentSpec, ids: dict[str, str], introduc
     out = []
     for ln in sorted(cut.lines, key=lambda x: x.start):
         sp = spec.speakers.get(ln.char_id) or Speaker(ln.char_id, "the speaker")
-        who = sp.ref
-        if ln.char_id not in introduced and sp.voice_en:
-            who = f"{sp.ref}, with {sp.voice_en},"
+        sid = ids[ln.char_id]
+        voice = sp.voice_en if (ln.char_id not in introduced and sp.voice_en) else ""
         introduced.add(ln.char_id)
-        delivery = f" {ln.delivery.strip()}" if ln.delivery else ""
+        # 官方格式：Ref2VA 写 “<Subject N> (S1) … says”（标签和说话人 ID 紧挨）；FL2VA 写 “身份短语 + 音色 (S1) says”
+        if sp.ref.startswith("<"):
+            who = f"{sp.ref} ({sid})"
+            voice_part = f" with {voice}" if voice else ""
+        else:
+            who = f"{sp.ref} with {voice} ({sid})" if voice else f"{sp.ref} ({sid})"
+            voice_part = ""
+        delivery = f", {ln.delivery.strip()}" if ln.delivery else ""
         timing = f"At about {ln.start:.1f} seconds, " if len(spec.lines) > 1 else ""
         if ln.voiceover:
-            out.append(f"{timing}{who} ({ids[ln.char_id]}) says in an off-screen voiceover{delivery}: "
+            out.append(f"{timing}{who} says in an off-screen voiceover{voice_part}{delivery}: "
                        f"<d>[{tag}] {ln.text}</d> while the lips of everyone on screen remain completely closed.")
         else:
-            out.append(f"{timing}{who} ({ids[ln.char_id]}) says{delivery}: <d>[{tag}] {ln.text}</d>")
+            out.append(f"{timing}{who} says{voice_part}{delivery}: <d>[{tag}] {ln.text}</d>")
     speaking = {ln.char_id for ln in cut.lines if not ln.voiceover}
     for cid in cut.listeners:
         if cid not in speaking:
@@ -189,13 +203,13 @@ def compile_fl2va(spec: SegmentSpec, first_frame: bool = True, last_frame: bool 
     head = ""
     if first_frame and last_frame:
         head = ("How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the "
-                f"0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the {spec.duration:.2f}-second "
+                f"0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the {effective_end(spec.duration):.2f}-second "
                 "mark of the target video.\n\n")
     elif first_frame:
         head = "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\n"
     elif last_frame:
         head = ("How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) aligns with the "
-                f"{spec.duration:.2f}-second mark of the target video.\n\n")
+                f"{effective_end(spec.duration):.2f}-second mark of the target video.\n\n")
     prefix = f"{spec.style}, "
     if first_frame and not last_frame:
         prefix += "starting exactly from <Picture 1> and keeping its characters, costumes, set and lighting consistent, "
@@ -230,9 +244,11 @@ def compile_ref2va(spec: SegmentSpec, refs: list[RefItem], identity: dict[str, s
         pics = [lab for r, lab in labels if r.role == "identity" and r.char_id == cid]
         desc = identity.get(cid, "").strip().rstrip(".")
         src = f" in {' and '.join(pics)}" if pics else ""
-        sid = f" ({ids[cid]})" if cid in ids else ""
-        defs.append(f"{sref}{sid} is the person{src}" + (f", {desc}." if desc else "."))
-        ret.append(f"{sref} (appears in the shots where visible): fully_preserved - facial identity, hairstyle, skin tone, "
+        defs.append(f"{sref} is the person{src}" + (f", {desc}." if desc else "."))
+        shots_in = [f"[Shot {k}]" for k, c in enumerate(spec.cuts, 1) if cid in c.characters]
+        where = (f"appears in {', '.join(shots_in)}" if shots_in
+                 else "heard only as an off-screen voice" if any(c.characters for c in spec.cuts) else "appears in the shots where visible")
+        ret.append(f"{sref} ({where}): fully_preserved - facial identity, hairstyle, skin tone, "
                    "body shape and costume are retained exactly; pose and expression follow each shot.")
     dialogue_label = None
     for r, lab in labels:

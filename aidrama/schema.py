@@ -138,7 +138,8 @@ class Segment(BaseModel):
     prompt_issues: list[str] = Field(default_factory=list)
     takes: list[Take] = Field(default_factory=list)
     chosen: Optional[int] = None         # 选中的 take 下标
-    picked_by_hand: bool = False         # 人工 pick 过：之后补抽不再自动改选
+    picked_by_hand: bool = False         # 人工 pick 过（或已被续写镜头接上）：之后补抽不再自动改选
+    sig: str = ""                        # 内容签名（镜头文字/台词/关键帧/时长）；变了就说明旧视频已过期
     video_final: Optional[str] = None    # 超分后
     status: str = "todo"
 

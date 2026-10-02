@@ -21,7 +21,7 @@ class InfiniteTalkJob:
     prompt: str = "A person is talking naturally to someone off-screen."
     audio_seconds: float = 3.0
     width: int = 480
-    height: int = 848
+    height: int = 832                # Wan 2.1 480p 标准竖屏 480x832
     steps: int = 6
     audio_scale: float = 1.0
     seed: int = 0

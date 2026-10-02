@@ -72,13 +72,13 @@ def smoke(only: list[str] | None = None, out_dir: str | Path | None = None) -> b
 
     # 2. H3 FL2VA 图生视频（4 秒，480x864，8 步，不依赖加速 LoRA）
     def h3():
-        kf = state.get("keyframe") or placeholder_image(out / "kf_placeholder.png", 480, 864, "smoke")
+        kf = state.get("keyframe") or placeholder_image(out / "kf_placeholder.png", 512, 896, "smoke")
         free()
         job = H3Job(prompt=("For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\n"
                             "integrated_multimodal_description: [Shot 1] Live-action, cinematic, starting exactly from <Picture 1>. "
                             "The woman slowly lifts the envelope and reads it; the camera pushes in slightly. No subtitles.\n\n"
                             "overall_soundscape: Quiet room tone and the rustle of paper.\n\nnon_diegetic_music: N/A"),
-                    seconds=4, width=480, height=864, mode="fl2va", first_frame=comfy.upload(kf), steps=8,
+                    seconds=5, width=512, height=896, mode="fl2va", first_frame=comfy.upload(kf), steps=8,
                     scheduler="simple", attention=cfg["video"].get("attention") or None, seed=3, prefix="aidrama/smoke_h3")
         p = comfy.run(build_h3(job), out, "h3_fl2va")[0]
         state["video"] = p
@@ -86,11 +86,11 @@ def smoke(only: list[str] | None = None, out_dir: str | Path | None = None) -> b
 
     # 3. H3 Ref2VA + 对白音轨驱动（需要音频服务；不可用时用静音轨只测模型加载）
     def ref2va():
-        kf = state.get("keyframe") or placeholder_image(out / "kf_placeholder.png", 480, 864, "smoke")
+        kf = state.get("keyframe") or placeholder_image(out / "kf_placeholder.png", 512, 896, "smoke")
         wav = state.get("line")
         if wav is None:
             wav = out / "silence.wav"
-            ff.run(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "4", str(wav)])
+            ff.run(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "5", str(wav)])
         free()
         img, aud = comfy.upload(kf), comfy.upload(wav)
         prompt = ("subject_definitions:\n<Subject 1> (S1) is the person in <Picture 1>.\n<Picture 1> is the first frame of [Shot 1].\n"
@@ -99,7 +99,7 @@ def smoke(only: list[str] | None = None, out_dir: str | Path | None = None) -> b
                   "retention_analysis:\n<Subject 1>: fully_preserved.\n<Audio 1>: partially_copy - every spoken word is reused in sync.\n\n"
                   f"detailed_description:\n[Shot 1] The shot begins from <Picture 1>. <Subject 1> (S1) says quietly: <d>[Chinese] {LINE}</d> "
                   "Every syllable follows <Audio 1> exactly.\n\noverall_soundscape:\nQuiet room tone.\n\nnon_diegetic_music:\nN/A")
-        job = H3Job(prompt=prompt, seconds=4, width=480, height=864, mode="ref2va", ref_images=[img], ref_audios=[aud],
+        job = H3Job(prompt=prompt, seconds=5, width=512, height=896, mode="ref2va", ref_images=[img], ref_audios=[aud],
                     guides=[Guide(0, image=img)], anchor_first_frame=False, steps=8, scheduler="simple",
                     attention=cfg["video"].get("attention") or None, seed=4, prefix="aidrama/smoke_ref2va")
         p = comfy.run(build_h3(job), out, "h3_ref2va")[0]

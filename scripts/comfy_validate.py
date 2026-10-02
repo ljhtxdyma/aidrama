@@ -28,6 +28,12 @@ def main() -> int:
     ap.add_argument("files", nargs="+")
     a = ap.parse_args()
 
+    # 先把工作流路径展开成绝对路径，再切到 ComfyUI 目录（相对路径否则会找不到）
+    paths = []
+    for pat in a.files:
+        paths.extend(sorted(glob.glob(os.path.expanduser(pat))) or [pat])
+    paths = [os.path.abspath(p) for p in paths]
+
     comfy = os.path.abspath(os.path.expanduser(a.comfy))
     sys.path.insert(0, comfy)
     os.chdir(comfy)
@@ -45,9 +51,6 @@ def main() -> int:
     import folder_paths
     import nodes
 
-    paths = []
-    for pat in a.files:
-        paths.extend(sorted(glob.glob(pat)) or [pat])
     graphs = {p: json.load(open(p, encoding="utf-8")) for p in paths}
 
     if a.stub_models:

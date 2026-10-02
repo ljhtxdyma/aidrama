@@ -68,6 +68,14 @@ def last_frame(video: str | Path, out_png: str | Path) -> Path:
     return Path(out_png)
 
 
+def frame_at(video: str | Path, t: float, out_png: str | Path) -> Path:
+    """抽取 t 秒处的一帧（-ss 放在 -i 前面是关键帧快速定位，再精确解码到 t）。"""
+    run(["-ss", f"{max(0.0, t):.3f}", "-i", str(video), "-frames:v", "1", "-update", "1", str(out_png)])
+    if not Path(out_png).exists():      # t 超出视频长度时退回最后一帧
+        return last_frame(video, out_png)
+    return Path(out_png)
+
+
 def lufs(path: str | Path) -> float | None:
     """Integrated loudness (EBU R128) of a file's audio."""
     cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-nostats", "-i", str(path), "-af", "ebur128=peak=true", "-f", "null", "-"]

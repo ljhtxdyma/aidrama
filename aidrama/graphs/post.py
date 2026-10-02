@@ -36,7 +36,8 @@ def build_seedvr2(job: UpscaleJob) -> dict:
     unet = g.add("UNETLoader", unet_name=M.SEEDVR2_7B if job.model == "7b" else M.SEEDVR2_3B, weight_dtype="default").out
     lat = g.add("VAEEncodeTiled", pixels=pre, vae=vae, tile_size=512, overlap=128, temporal_size=64, temporal_overlap=8).out
     if job.chunked:
-        ch = g.add("SeedVR2TemporalChunk", latent=lat, temporal_overlap=0, chunking_mode="auto")
+        # 显存不够被自动切块时，相邻块重叠 2 个潜帧做交叉淡化，避免接缝（官方模板默认不分块）
+        ch = g.add("SeedVR2TemporalChunk", latent=lat, temporal_overlap=2, chunking_mode="auto")
         cond_lat, overlap = ch[0], ch[1]
     else:
         cond_lat, overlap = lat, None
