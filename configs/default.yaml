@@ -1,0 +1,77 @@
+# aidrama 默认配置。在工程目录里放一个 aidrama.yaml 只写需要改的项即可覆盖。
+
+comfy:
+  url: http://127.0.0.1:8188
+  input_subfolder: aidrama        # 上传到 ComfyUI/input/aidrama/
+  free_between_stages: true       # 切换模型阶段（图像→视频→超分）时让 ComfyUI 释放显存
+
+# 单卡显存调度：ComfyUI / 音频模型 / 本地 LLM 轮流占用 5090，切换前自动让另外两方释放显存
+gpu:
+  handoff: true
+
+# 任意 OpenAI 兼容接口。常见写法：
+#   本地 Ollama（默认，可自动卸载显存）:  base_url: http://127.0.0.1:11434/v1   model: aidrama-llm（安装脚本建的别名）
+#   本地 llama.cpp llama-server:          base_url: http://127.0.0.1:8081/v1    model: 任意（不能自动卸载，建议放 CPU 或分时段跑）
+#   云端 DeepSeek:                        base_url: https://api.deepseek.com/v1 model: deepseek-chat  api_key: env:DEEPSEEK_API_KEY
+#   云端通义千问:                         base_url: https://dashscope.aliyuncs.com/compatible-mode/v1  model: qwen-max  api_key: env:DASHSCOPE_API_KEY
+llm:
+  base_url: http://127.0.0.1:11434/v1
+  model: aidrama-llm
+  api_key: ""
+  temperature: 0.8
+  max_tokens: 16384
+  unload: auto                        # auto：Ollama 在 ComfyUI 阶段前用 keep_alive=0 卸载；none：不卸载
+  extra: {}
+
+# 本地音频服务（services/audio_server.py）
+audio:
+  tts_url: http://127.0.0.1:9001      # IndexTTS-2.5：对白配音
+  design_url: http://127.0.0.1:9002   # Qwen3-TTS VoiceDesign：生成角色音色样本
+  asr_url: http://127.0.0.1:9002      # Qwen3-ASR + ForcedAligner：字幕对齐 / 对白质检
+  line_gap: 0.25                      # 同一镜头内两句台词之间的停顿（秒）
+  lead_in: 0.35                       # 镜头开始到第一句台词的留白（秒）
+  tail: 0.45                          # 最后一句台词后的留白（秒）
+  max_cer: 0.15                       # 对白质检：识别结果与剧本的字错率阈值
+
+image:
+  width: 1088                         # 关键帧 4:7（与 H3 竖屏画布 768x1344 同比例）
+  height: 1904
+  steps: 25
+  sheet_width: 1024                   # 定妆照
+  sheet_height: 1536
+  enhance: false                      # 是否启用 Qwen Image 2.1 官方提示词扩写模型（额外 8.8GB）
+
+video:
+  preset: quality                     # quality | balanced | draft
+  takes: 2                            # 每个镜头抽几条
+  attention: comfy kitchen attention  # INT8 注意力；如遇报错改成 "pytorch attention"
+  refine_prompt_with_llm: true        # 用 LLM 按官方指南扩写 H3 提示词（本地版 Context-IR）
+  dialogue_engine: ref2va_audio       # ref2va_audio（默认：TTS 音频作为 <Audio 1> 驱动口型）| native（让 H3 自己说）
+  anchor_dialogue_audio: false        # 额外用 MiniMaxH3AddGuide 把对白音频钉在时间轴上（实验）
+  ref_image_size: match               # match | max（max 锁脸更强但更慢）
+  max_seconds: 15.0
+
+upscale:
+  enabled: true
+  model: 7b                           # 7b | 3b
+  color_correction: lab
+
+post:
+  fps: 24
+  width: 1080
+  height: 1920
+  target_lufs: -14.0
+  burn_subtitles: true
+  subtitle_font: Source Han Sans SC
+  subtitle_size: 64
+  subtitle_margin_v: 520
+  fonts_dir: null
+  ai_label: 本内容由AI生成            # 显式标识：必须含“AI/人工智能”和“生成/合成”，起始画面角落，字高 ≥ 短边 5%
+  aigc_producer: aidrama-local        # 隐式标识（文件元数据 AIGC 字段）里的制作方名称/编码，只能用英文数字和 -_.
+  bgm_db: -16.0
+
+music:
+  engine: minimax_music3              # minimax_music3 | none
+  seconds: 120
+
+mock: false                           # true = 不连接 ComfyUI/LLM/TTS，用占位素材跑通全流程（云端 CI 用）

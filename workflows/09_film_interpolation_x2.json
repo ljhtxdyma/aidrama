@@ -1,0 +1,79 @@
+{
+ "1": {
+  "class_type": "LoadVideo",
+  "inputs": {
+   "file": "aidrama/segment.mp4"
+  }
+ },
+ "2": {
+  "class_type": "GetVideoComponents",
+  "inputs": {
+   "video": [
+    "1",
+    0
+   ]
+  }
+ },
+ "3": {
+  "class_type": "FrameInterpolationModelLoader",
+  "inputs": {
+   "model_name": "film_net_fp16.safetensors"
+  }
+ },
+ "4": {
+  "class_type": "FrameInterpolate",
+  "inputs": {
+   "interp_model": [
+    "3",
+    0
+   ],
+   "images": [
+    "2",
+    0
+   ],
+   "multiplier": 2
+  }
+ },
+ "5": {
+  "class_type": "ComfyMathExpression",
+  "inputs": {
+   "expression": "a * b",
+   "values.a": [
+    "2",
+    2
+   ],
+   "values.b": 2.0
+  }
+ },
+ "6": {
+  "class_type": "CreateVideo",
+  "inputs": {
+   "images": [
+    "4",
+    0
+   ],
+   "audio": [
+    "2",
+    1
+   ],
+   "fps": [
+    "5",
+    0
+   ]
+  }
+ },
+ "7": {
+  "class_type": "SaveVideo",
+  "inputs": {
+   "video": [
+    "6",
+    0
+   ],
+   "filename_prefix": "aidrama/interp",
+   "format": "mp4",
+   "format.codec": "h264",
+   "format.codec.encoding": "re-encode",
+   "format.codec.encoding.crf": 12.0
+  }
+ }
+}

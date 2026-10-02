@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aidrama"
+version = "2026.10.0"
+description = "本地 AI 短剧流水线：RTX 5090 + ComfyUI 0.38 + MiniMax H3 + IndexTTS-2.5"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "pyyaml>=6",
+  "requests>=2.31",
+  "websocket-client>=1.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aidrama = "aidrama.cli:main"
+
+[tool.setuptools]
+packages = ["aidrama", "aidrama.graphs"]
+
+[tool.setuptools.package-data]
+aidrama = ["prompts/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

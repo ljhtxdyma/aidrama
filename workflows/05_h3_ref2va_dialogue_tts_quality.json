@@ -1,0 +1,256 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+   "weight_dtype": "default"
+  },
+  "_meta": {
+   "title": "H3 DiT"
+  }
+ },
+ "2": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+   "type": "minimax",
+   "device": "default"
+  },
+  "_meta": {
+   "title": "Qwen3-VL-32B TE"
+  }
+ },
+ "3": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+  },
+  "_meta": {
+   "title": "H3 video VAE"
+  }
+ },
+ "4": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+  },
+  "_meta": {
+   "title": "H3 audio VAE (fp32)"
+  }
+ },
+ "5": {
+  "class_type": "ModelAttentionBackend",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "attention": "comfy kitchen attention"
+  }
+ },
+ "6": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "aidrama/s01_01.png"
+  }
+ },
+ "7": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "aidrama/sheet_lin_wan.png"
+  }
+ },
+ "8": {
+  "class_type": "LoadAudio",
+  "inputs": {
+   "audio": "aidrama/ep01_g01_dialogue.wav"
+  }
+ },
+ "9": {
+  "class_type": "MiniMaxH3ReferenceToVideo",
+  "inputs": {
+   "clip": [
+    "2",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ],
+   "audio_vae": [
+    "4",
+    0
+   ],
+   "prompt": "subject_definitions:\n<Subject 1> (S1) is the person in <Picture 2>, a slender woman in her mid-20s with a low black ponytail, wearing an ivory silk blouse with a thin black ribbon tie.\n<Picture 1> is the first frame of [Shot 1].\n<Audio 1> is the pre-recorded dialogue track of the target video, containing the spoken lines of <Subject 1> (S1).\n\nsummary:\n[keyframe completion + reference generation + audio reuse] The target video is a 1-shot scene with <Subject 1>. It begins exactly from <Picture 1>. <Audio 1> supplies the exact dialogue, and the speakers' lips are synchronized to it.\n\nretention_analysis:\n<Subject 1> (appears in the shots where visible): fully_preserved - facial identity, hairstyle, skin tone, body shape and costume are retained exactly; pose and expression follow each shot.\n<Picture 1> ([Shot 1] first frame): fully_preserved - framing, subject positions, costumes and lighting are matched exactly at that moment.\n<Audio 1>: partially_copy - every spoken word of <Audio 1> is reused verbatim and in sync as the dialogue, while room tone and physical sounds are added around it.\n\ndetailed_description:\nThe target video is in a live-action, cinematic style, low-key light from a green banker's lamp with cool blue moonlight from a high window.\n[Shot 1] The shot begins from <Picture 1>. <Subject 1> reads the address on the envelope; her eyes widen slightly, her breath catches, and her fingers tighten on the paper. The camera pushes in with small amplitude at slow speed toward her face. <Subject 1>, with a clear, cool, mid-pitched young female voice, (S1) says in a low, stunned whisper: <d>[Chinese] 这封信，写的是我的名字。</d> As soon as each line ends, the speaker's lips close and the jaw stops moving. Every syllable and mouth movement follows <Audio 1> exactly.\nNo subtitles, captions or on-screen text appear at any time.\n\noverall_soundscape:\nQuiet archive room tone with a faint ticking clock and the soft hum of an old lamp.\n\nnon_diegetic_music:\nN/A",
+   "width": 768,
+   "height": 1344,
+   "length": 124,
+   "ref_image_size": "match",
+   "ref_images.ref_image_0": [
+    "6",
+    0
+   ],
+   "ref_images.ref_image_1": [
+    "7",
+    0
+   ],
+   "ref_audios.ref_audio_0": [
+    "8",
+    0
+   ]
+  },
+  "_meta": {
+   "title": "H3 Ref2VA"
+  }
+ },
+ "10": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "aidrama/s01_01.png"
+  }
+ },
+ "11": {
+  "class_type": "MiniMaxH3AddGuide",
+  "inputs": {
+   "positive": [
+    "9",
+    0
+   ],
+   "latent": [
+    "9",
+    1
+   ],
+   "frame_idx": 0,
+   "vae": [
+    "3",
+    0
+   ],
+   "image": [
+    "10",
+    0
+   ]
+  },
+  "_meta": {
+   "title": "Guide@0"
+  }
+ },
+ "12": {
+  "class_type": "RandomNoise",
+  "inputs": {
+   "noise_seed": 0
+  }
+ },
+ "13": {
+  "class_type": "BasicGuider",
+  "inputs": {
+   "model": [
+    "5",
+    0
+   ],
+   "conditioning": [
+    "11",
+    0
+   ]
+  }
+ },
+ "14": {
+  "class_type": "KSamplerSelect",
+  "inputs": {
+   "sampler_name": "res_multistep"
+  }
+ },
+ "15": {
+  "class_type": "BasicScheduler",
+  "inputs": {
+   "model": [
+    "5",
+    0
+   ],
+   "scheduler": "beta",
+   "steps": 25,
+   "denoise": 1.0
+  }
+ },
+ "16": {
+  "class_type": "SamplerCustomAdvanced",
+  "inputs": {
+   "noise": [
+    "12",
+    0
+   ],
+   "guider": [
+    "13",
+    0
+   ],
+   "sampler": [
+    "14",
+    0
+   ],
+   "sigmas": [
+    "15",
+    0
+   ],
+   "latent_image": [
+    "9",
+    1
+   ]
+  }
+ },
+ "17": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "16",
+    0
+   ],
+   "vae": [
+    "3",
+    0
+   ]
+  }
+ },
+ "18": {
+  "class_type": "VAEDecodeAudio",
+  "inputs": {
+   "samples": [
+    "16",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  }
+ },
+ "19": {
+  "class_type": "CreateVideo",
+  "inputs": {
+   "images": [
+    "17",
+    0
+   ],
+   "audio": [
+    "18",
+    0
+   ],
+   "fps": 24.0
+  }
+ },
+ "20": {
+  "class_type": "SaveVideo",
+  "inputs": {
+   "video": [
+    "19",
+    0
+   ],
+   "filename_prefix": "aidrama/h3",
+   "format": "mp4",
+   "format.codec": "h264",
+   "format.codec.encoding": "re-encode",
+   "format.codec.encoding.crf": 12.0
+  },
+  "_meta": {
+   "title": "Save"
+  }
+ }
+}

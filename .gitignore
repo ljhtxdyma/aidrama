@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
+
+# 安装脚本生成的本机文件
+.stack.env
+aidrama.bat
+aidrama.sh
+fonts/
+
+# 工程产物（默认放在 projects/ 下，体积大，不进版本库）
+projects/
+*.mp4
+*.wav
+*.flac
+*.png
+!docs/**/*.png
+*.safetensors
+*.gguf
+*.part
