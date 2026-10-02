@@ -133,3 +133,15 @@ def test_assemble_silent_mix(tmp_path):
     v = placeholder_video(tmp_path / "a.mp4", 360, 640, 2.0, "silent")
     res = assemble([Clip(str(v), 2.0)], tmp_path / "out", "ep", AssembleOptions(width=360, height=640, burn_subtitles=False))
     assert ff.duration(res["final"]) == pytest.approx(2.0, abs=0.1)
+
+
+@needs_ffmpeg
+def test_ai_label_special_characters(tmp_path):
+    from aidrama.assemble import AssembleOptions, Clip, assemble
+    from aidrama.mock import placeholder_video, tone_wav
+
+    v = placeholder_video(tmp_path / "a.mp4", 360, 640, 1.5, "x", audio=tone_wav(tmp_path / "a.wav", 1.5))
+    # 冒号、百分号、引号、反斜杠都不能让 drawtext 失败或吞字
+    res = assemble([Clip(str(v), 1.5)], tmp_path / "out", "ep",
+                   AssembleOptions(width=360, height=640, burn_subtitles=False, ai_label="提示: 100% AI生成 'x' \\y"))
+    assert ff.duration(res["final"]) == pytest.approx(1.5, abs=0.1)

@@ -212,7 +212,10 @@ def assemble(clips: list[Clip], out_dir: str | Path, name: str = "episode", opts
             fontfile = _find_font(o.fonts_dir)
             ff_font = f":fontfile='{_escape_filter_path(fontfile)}'" if fontfile else ""
             label_size = max(o.ai_label_size, math.ceil(min(o.width, o.height) * 0.05 / 0.85))
-            vf.append(f"drawtext=text='{o.ai_label}'{ff_font}:fontsize={label_size}:fontcolor=white@0.85:"
+            # 单引号/反斜杠会破坏滤镜参数；半角冒号是 drawtext 的选项分隔符，要转义成 \:
+            label = o.ai_label.replace("\\", "＼").replace("'", "’").replace(":", "\\:")
+            # expansion=none：标识文字里的 % 不当作模板展开（否则整条标识会被静默丢掉）
+            vf.append(f"drawtext=text='{label}':expansion=none{ff_font}:fontsize={label_size}:fontcolor=white@0.85:"
                       f"borderw=2:bordercolor=black@0.6:x=w-tw-40:y=140")
         clean_vf = ",".join(vf) if vf else "null"
         enc = ["-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-crf", str(o.crf), "-preset", o.preset,

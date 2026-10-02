@@ -98,7 +98,7 @@ IndexTTS-2.5 用角色音色逐句配音：
 
 - 情绪由台词的 `emotion` 决定；需要精细控制时，可以用 `emo_vector` 写 8 维向量。
 - 配好的音频会去掉首尾静音，并统一到 -18 LUFS。
-- 产物在 `episodes/ep01/audio/<镜头>_l<n>.wav`，真实时长回写到 `project.yaml`。
+- 产物在 `episodes/ep01/audio/<镜头>_<8位哈希>.wav`（哈希由台词、情绪和音色算出），真实时长回写到 `project.yaml`。
 
 **人工检查：** 逐句听一遍，重点听多音字、语气、语速。
 
