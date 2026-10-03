@@ -1,0 +1,184 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "qwen_image_edit_2511_int8_convrot.safetensors",
+   "weight_dtype": "default"
+  },
+  "_meta": {
+   "title": "Qwen-Image-Edit-2511"
+  }
+ },
+ "2": {
+  "class_type": "ModelSamplingAuraFlow",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "shift": 3.1
+  }
+ },
+ "3": {
+  "class_type": "CFGNorm",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "strength": 1.0
+  }
+ },
+ "4": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+   "type": "qwen_image",
+   "device": "default"
+  }
+ },
+ "5": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "qwen_image_vae.safetensors"
+  }
+ },
+ "6": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "aidrama/front.png"
+  }
+ },
+ "7": {
+  "class_type": "FluxKontextImageScale",
+  "inputs": {
+   "image": [
+    "6",
+    0
+   ]
+  }
+ },
+ "8": {
+  "class_type": "TextEncodeQwenImageEditPlus",
+  "inputs": {
+   "clip": [
+    "4",
+    0
+   ],
+   "prompt": "Character reference sheet of the person in Picture 1 on a plain light-grey background, full-body front, three-quarter and back views side by side, wearing an ivory silk blouse with a thin black ribbon tie. Keep the face of Picture 1 exactly.",
+   "vae": [
+    "5",
+    0
+   ],
+   "image1": [
+    "7",
+    0
+   ]
+  },
+  "_meta": {
+   "title": "Encode +"
+  }
+ },
+ "9": {
+  "class_type": "TextEncodeQwenImageEditPlus",
+  "inputs": {
+   "clip": [
+    "4",
+    0
+   ],
+   "prompt": "",
+   "vae": [
+    "5",
+    0
+   ],
+   "image1": [
+    "7",
+    0
+   ]
+  },
+  "_meta": {
+   "title": "Encode -"
+  }
+ },
+ "10": {
+  "class_type": "FluxKontextMultiReferenceLatentMethod",
+  "inputs": {
+   "conditioning": [
+    "8",
+    0
+   ],
+   "reference_latents_method": "index_timestep_zero"
+  }
+ },
+ "11": {
+  "class_type": "FluxKontextMultiReferenceLatentMethod",
+  "inputs": {
+   "conditioning": [
+    "9",
+    0
+   ],
+   "reference_latents_method": "index_timestep_zero"
+  }
+ },
+ "12": {
+  "class_type": "EmptySD3LatentImage",
+  "inputs": {
+   "width": 1536,
+   "height": 1024,
+   "batch_size": 1
+  }
+ },
+ "13": {
+  "class_type": "KSampler",
+  "inputs": {
+   "model": [
+    "3",
+    0
+   ],
+   "seed": 0,
+   "steps": 40,
+   "cfg": 4.0,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "positive": [
+    "10",
+    0
+   ],
+   "negative": [
+    "11",
+    0
+   ],
+   "latent_image": [
+    "12",
+    0
+   ],
+   "denoise": 1.0
+  }
+ },
+ "14": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "13",
+    0
+   ],
+   "vae": [
+    "5",
+    0
+   ]
+  }
+ },
+ "15": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "14",
+    0
+   ],
+   "filename_prefix": "aidrama/img"
+  },
+  "_meta": {
+   "title": "Save"
+  }
+ }
+}

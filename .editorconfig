@@ -1,0 +1,23 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json,md}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# Windows PowerShell 5.1 只有在文件带 BOM 时才按 UTF-8 读取（否则中文乱码甚至语法错误）
+[*.ps1]
+charset = utf-8-bom
+end_of_line = crlf
+
+[*.bat]
+end_of_line = crlf

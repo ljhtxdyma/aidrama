@@ -1,0 +1,117 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+   "weight_dtype": "default"
+  },
+  "_meta": {
+   "title": "Qwen-Image-2512"
+  }
+ },
+ "2": {
+  "class_type": "ModelSamplingAuraFlow",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "shift": 3.1
+  }
+ },
+ "3": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+   "type": "qwen_image",
+   "device": "default"
+  }
+ },
+ "4": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "qwen_image_vae.safetensors"
+  }
+ },
+ "5": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "Vertical portrait photograph, head and shoulders, front view, neutral expression, a slender woman in her mid-20s, oval face, small beauty mark under the left eye, low black ponytail. Plain light-grey studio backdrop, soft studio lighting, photorealistic, natural skin texture.",
+   "clip": [
+    "3",
+    0
+   ]
+  }
+ },
+ "6": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲",
+   "clip": [
+    "3",
+    0
+   ]
+  }
+ },
+ "7": {
+  "class_type": "EmptySD3LatentImage",
+  "inputs": {
+   "width": 1024,
+   "height": 1536,
+   "batch_size": 1
+  }
+ },
+ "8": {
+  "class_type": "KSampler",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "seed": 0,
+   "steps": 50,
+   "cfg": 4.0,
+   "sampler_name": "euler",
+   "scheduler": "simple",
+   "positive": [
+    "5",
+    0
+   ],
+   "negative": [
+    "6",
+    0
+   ],
+   "latent_image": [
+    "7",
+    0
+   ],
+   "denoise": 1.0
+  }
+ },
+ "9": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "8",
+    0
+   ],
+   "vae": [
+    "4",
+    0
+   ]
+  }
+ },
+ "10": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "9",
+    0
+   ],
+   "filename_prefix": "aidrama/img"
+  },
+  "_meta": {
+   "title": "Save"
+  }
+ }
+}

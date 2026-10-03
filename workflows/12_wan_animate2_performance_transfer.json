@@ -1,0 +1,321 @@
+{
+ "1": {
+  "class_type": "UNETLoader",
+  "inputs": {
+   "unet_name": "wan_animate_2_distill_int8_convrot.safetensors",
+   "weight_dtype": "default"
+  }
+ },
+ "2": {
+  "class_type": "WanAnimate2Cache",
+  "inputs": {
+   "model": [
+    "1",
+    0
+   ],
+   "device": "gpu",
+   "dtype": "int8"
+  }
+ },
+ "3": {
+  "class_type": "ModelSamplingSD3",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "shift": 5.0
+  }
+ },
+ "4": {
+  "class_type": "CLIPLoader",
+  "inputs": {
+   "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+   "type": "wan",
+   "device": "default"
+  }
+ },
+ "5": {
+  "class_type": "VAELoader",
+  "inputs": {
+   "vae_name": "Wan2_1_VAE_bf16.safetensors"
+  }
+ },
+ "6": {
+  "class_type": "CLIPVisionLoader",
+  "inputs": {
+   "clip_name": "clip_vision_h.safetensors"
+  }
+ },
+ "7": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "A woman in an ivory silk blouse in a dim archive room.",
+   "clip": [
+    "4",
+    0
+   ]
+  }
+ },
+ "8": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+   "clip": [
+    "4",
+    0
+   ]
+  }
+ },
+ "9": {
+  "class_type": "CLIPTextEncode",
+  "inputs": {
+   "text": "A reference video of a person performing.",
+   "clip": [
+    "4",
+    0
+   ]
+  }
+ },
+ "10": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "aidrama/sheet_a.png"
+  }
+ },
+ "11": {
+  "class_type": "LoadVideo",
+  "inputs": {
+   "file": "aidrama/actor.mp4"
+  }
+ },
+ "12": {
+  "class_type": "GetVideoComponents",
+  "inputs": {
+   "video": [
+    "11",
+    0
+   ]
+  }
+ },
+ "13": {
+  "class_type": "ResizeImageMaskNode",
+  "inputs": {
+   "input": [
+    "12",
+    0
+   ],
+   "resize_type": "scale dimensions",
+   "scale_method": "area",
+   "resize_type.width": 720,
+   "resize_type.height": 1280,
+   "resize_type.crop": "center"
+  }
+ },
+ "14": {
+  "class_type": "ResizeImageMaskNode",
+  "inputs": {
+   "input": [
+    "10",
+    0
+   ],
+   "resize_type": "scale dimensions",
+   "scale_method": "area",
+   "resize_type.width": 720,
+   "resize_type.height": 1280,
+   "resize_type.crop": "center"
+  }
+ },
+ "15": {
+  "class_type": "CLIPVisionEncode",
+  "inputs": {
+   "clip_vision": [
+    "6",
+    0
+   ],
+   "image": [
+    "14",
+    0
+   ],
+   "crop": "none"
+  }
+ },
+ "16": {
+  "class_type": "ImageFromBatch",
+  "inputs": {
+   "image": [
+    "13",
+    0
+   ],
+   "batch_index": 0,
+   "length": 1
+  }
+ },
+ "17": {
+  "class_type": "CLIPVisionEncode",
+  "inputs": {
+   "clip_vision": [
+    "6",
+    0
+   ],
+   "image": [
+    "16",
+    0
+   ],
+   "crop": "none"
+  }
+ },
+ "18": {
+  "class_type": "WanAnimate2ToVideo",
+  "inputs": {
+   "positive": [
+    "7",
+    0
+   ],
+   "negative": [
+    "8",
+    0
+   ],
+   "vae": [
+    "5",
+    0
+   ],
+   "width": 720,
+   "height": 1280,
+   "length": 81,
+   "batch_size": 1,
+   "video_frame_offset": 0,
+   "pose_strength": 1.0,
+   "pose_start_percent": 0.0,
+   "pose_end_percent": 1.0,
+   "reference_image_strength": 1.0,
+   "reference_image": [
+    "14",
+    0
+   ],
+   "pose_video": [
+    "13",
+    0
+   ],
+   "clip_vision_output": [
+    "15",
+    0
+   ],
+   "positive_pose": [
+    "9",
+    0
+   ],
+   "clip_vision_output_pose": [
+    "17",
+    0
+   ]
+  }
+ },
+ "19": {
+  "class_type": "KSamplerSelect",
+  "inputs": {
+   "sampler_name": "lcm"
+  }
+ },
+ "20": {
+  "class_type": "BasicScheduler",
+  "inputs": {
+   "model": [
+    "2",
+    0
+   ],
+   "scheduler": "simple",
+   "steps": 10,
+   "denoise": 1.0
+  }
+ },
+ "21": {
+  "class_type": "SamplerCustom",
+  "inputs": {
+   "model": [
+    "3",
+    0
+   ],
+   "add_noise": true,
+   "noise_seed": 0,
+   "cfg": 1.0,
+   "positive": [
+    "18",
+    0
+   ],
+   "negative": [
+    "18",
+    1
+   ],
+   "sampler": [
+    "19",
+    0
+   ],
+   "sigmas": [
+    "20",
+    0
+   ],
+   "latent_image": [
+    "18",
+    2
+   ]
+  }
+ },
+ "22": {
+  "class_type": "TrimVideoLatent",
+  "inputs": {
+   "samples": [
+    "21",
+    0
+   ],
+   "trim_amount": [
+    "18",
+    3
+   ]
+  }
+ },
+ "23": {
+  "class_type": "VAEDecode",
+  "inputs": {
+   "samples": [
+    "22",
+    0
+   ],
+   "vae": [
+    "5",
+    0
+   ]
+  }
+ },
+ "24": {
+  "class_type": "CreateVideo",
+  "inputs": {
+   "images": [
+    "23",
+    0
+   ],
+   "audio": [
+    "12",
+    1
+   ],
+   "fps": [
+    "12",
+    2
+   ]
+  }
+ },
+ "25": {
+  "class_type": "SaveVideo",
+  "inputs": {
+   "video": [
+    "24",
+    0
+   ],
+   "filename_prefix": "aidrama/animate",
+   "format": "mp4",
+   "format.codec": "h264",
+   "format.codec.encoding": "re-encode",
+   "format.codec.encoding.crf": 12.0
+  }
+ }
+}

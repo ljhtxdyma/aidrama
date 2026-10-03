@@ -1,0 +1,4 @@
+# bash 脚本必须是 LF；PowerShell 脚本用 CRLF（文件本身带 UTF-8 BOM，Windows PowerShell 5.1 才能正确读中文）
+*.sh  text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf

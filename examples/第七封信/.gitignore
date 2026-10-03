@@ -1,0 +1,11 @@
+# aidrama 剧集工程的 Git 忽略规则（docs/03-工作流SOP.md「用 Git 管理剧集工程」）
+# 进版本库：project.yaml、aidrama.yaml、prompts/、graphs/、review.html、设定图/关键帧/配音（建议配合 Git LFS）
+# 不进版本库：抽卡视频、超分结果、成片和中间文件——体积大，且能从上面这些重新生成
+episodes/*/segments/
+episodes/*/final/
+episodes/*/out/
+episodes/*/qc/
+episodes/*/audio/*_raw.wav
+assets/characters/*/voice_raw.wav
+*.part
+.DS_Store
