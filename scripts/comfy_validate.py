@@ -62,7 +62,6 @@ def main() -> int:
                         wanted.add(v)
         orig_list = folder_paths.get_filename_list
         orig_full = folder_paths.get_full_path
-        orig_exists = folder_paths.exists_annotated_filepath
 
         def get_filename_list(folder_name):
             base = list(orig_list(folder_name))

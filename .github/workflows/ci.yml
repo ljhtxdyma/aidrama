@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: 代码与脚本检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff shellcheck-py
+      - name: ruff（Python 静态检查）
+        run: ruff check .
+      - name: shellcheck（Linux 安装/启动脚本）
+        run: shellcheck -S warning install/linux/*.sh
+      - name: PowerShell 7 语法检查
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem install/windows/*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($e in $errors) { Write-Host "::error file=$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+          }
+          exit $bad
+
+  powershell51:
+    name: Windows PowerShell 5.1 语法检查
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 用 Windows PowerShell 5.1 解析（检验 UTF-8 BOM 与中文是否被正确读取）
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem install/windows/*.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            foreach ($e in $errors) { Write-Host "::error file=$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+            Write-Host "$($f.Name): $($errors.Count) 个错误"
+          }
+          exit $bad
+
+  test:
+    name: 单元测试 + 全流程模拟（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装 ffmpeg（Linux）
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 安装 ffmpeg（Windows）
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: pip install -e ".[dev]"
+      - name: pytest
+        env:
+          PYTHONUTF8: "1"
+        run: python -m pytest -q
+
+  comfyui:
+    name: 用 ComfyUI v0.38 校验全部工作流
+    runs-on: ubuntu-latest
+    env:
+      COMFY_TAG: v0.38.2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 安装 ComfyUI（CPU 版 PyTorch，只用来校验，不推理）
+        run: |
+          git clone --depth 1 --branch "$COMFY_TAG" https://github.com/comfyanonymous/ComfyUI.git "$RUNNER_TEMP/ComfyUI"
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -r "$RUNNER_TEMP/ComfyUI/requirements.txt"
+          pip install -e .
+      - name: workflows/ 是否与代码同步
+        run: |
+          python -m aidrama export-workflows "$RUNNER_TEMP/wf"
+          diff -r workflows "$RUNNER_TEMP/wf" || { echo "::error::workflows/ 过期了，请运行 python -m aidrama export-workflows workflows 并提交"; exit 1; }
+      - name: 三档预设各跑一遍模拟流程，导出实际提交的工作流
+        run: |
+          for preset in quality balanced draft; do
+            python -m aidrama init-demo "$RUNNER_TEMP/demo_$preset"
+            python -m aidrama run "$RUNNER_TEMP/demo_$preset" ep01 --mock --takes 1 --preset "$preset" > /dev/null
+          done
+      - name: ComfyUI validate_prompt
+        run: python scripts/comfy_validate.py --comfy "$RUNNER_TEMP/ComfyUI" --stub-models "workflows/*.json" "$RUNNER_TEMP/demo_*/graphs/*.json"

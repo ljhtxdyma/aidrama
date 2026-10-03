@@ -147,6 +147,7 @@ class Pipeline:
                overrides: dict | None = None, log=print) -> "Pipeline":
         d = Path(project_dir)
         d.mkdir(parents=True, exist_ok=True)
+        write_project_gitignore(d)
         pl = cls(d, overrides, log)
         pl._gpu("llm")
         log(f"[bible] 用 LLM 生成剧集圣经：{idea}")
@@ -719,7 +720,7 @@ class Pipeline:
                 self.log(f"[upscale] {seg.id} ×{scale:.3f}（SeedVR2 {ucfg.get('model', '7b')}）")
                 if self.mock:
                     self._check_graph(api, f"{seg.id}_upscale")
-                    ff.run(["-i", str(src), "-vf", f"scale=-2:1920:flags=lanczos", "-c:v", "libx264", "-crf", "16", "-c:a", "copy", str(out)])
+                    ff.run(["-i", str(src), "-vf", "scale=-2:1920:flags=lanczos", "-c:v", "libx264", "-crf", "16", "-c:a", "copy", str(out)])
                 else:
                     out = self._run(api, udir, seg.id, f"{seg.id}_upscale")[0]
             seg.video_final = self.rel(out)
@@ -797,6 +798,26 @@ class Pipeline:
         from .review import write_review
         write_review(self, ep_id)
         return res
+
+
+PROJECT_GITIGNORE = """# aidrama 剧集工程的 Git 忽略规则（docs/03-工作流SOP.md「用 Git 管理剧集工程」）
+# 进版本库：project.yaml、aidrama.yaml、prompts/、graphs/、review.html、设定图/关键帧/配音（建议配合 Git LFS）
+# 不进版本库：抽卡视频、超分结果、成片和中间文件——体积大，且能从上面这些重新生成
+episodes/*/segments/
+episodes/*/final/
+episodes/*/out/
+episodes/*/qc/
+episodes/*/audio/*_raw.wav
+assets/characters/*/voice_raw.wav
+*.part
+.DS_Store
+"""
+
+
+def write_project_gitignore(project_dir: str | Path) -> None:
+    f = Path(project_dir) / ".gitignore"
+    if not f.exists():
+        f.write_text(PROJECT_GITIGNORE, encoding="utf-8")
 
 
 def _bundled_fonts() -> str | None:

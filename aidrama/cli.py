@@ -44,6 +44,9 @@ def cmd_init_demo(a):
     ep.scenes = [Scene.model_validate(s) for s in DEMO_STORYBOARD["scenes"]]
     ep.bgm_prompt = DEMO_STORYBOARD["bgm_prompt"]
     p.save(d / "project.yaml")
+    from .pipeline import write_project_gitignore
+
+    write_project_gitignore(d)
     print(f"示例工程已创建：{d / 'project.yaml'}")
     probs = p.check()
     print("一致性检查：" + ("通过" if not probs else "\n  " + "\n  ".join(probs)))

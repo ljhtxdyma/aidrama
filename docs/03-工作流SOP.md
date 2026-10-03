@@ -293,6 +293,35 @@ H3 一段最长 15 秒。超过 15 秒的独白，或者反复抽都对不上口
 - 声音授权；
 - 模型许可证是否允许你的商用规模。
 
+## 附：用 Git 管理剧集工程
+
+每部剧的工程目录建议单独建一个 Git 仓库。不要放进 aidrama 代码仓库：`projects/` 已在代码仓库的 `.gitignore` 里。
+
+`ad new` 和 `ad init-demo` 会自动在工程目录里写一个 `.gitignore`，规则如下：
+
+- **进版本库**：
+  - `project.yaml`，里面有设定、分镜和选条记录，是最重要的文件；
+  - `aidrama.yaml`；
+  - `prompts/`，包括人工改写的提示词；
+  - `graphs/`，即实际提交的工作流，可用来复现和留档；
+  - 设定图、关键帧、配音。
+- **不进版本库**：抽卡视频、超分结果、成片和中间文件。它们体积大，而且能用上面这些重新生成。
+
+```bash
+cd projects/myshow
+git init
+git lfs install                     # 可选：安装过 Git LFS 时，让图片和音频走 LFS，仓库不会越来越大
+git lfs track "*.png" "*.wav" "*.flac"
+git add -A && git commit -m "立项：剧集圣经 + 第 1 集分镜"
+# 之后每个阶段确认无误后提交一次，例如：
+git commit -am "ep01：关键帧定稿"
+git commit -am "ep01：选条完成"
+git tag ep01-v1                     # 交付版本打 tag；成片 mp4 另行归档（网盘/NAS）
+```
+
+这样改分镜、换关键帧、重新选条都有记录。出了问题可以 `git diff project.yaml` 查看改了什么，也可以 `git checkout` 回到任意一版。
+成片可以从记录的提示词、种子和工作流重新生成；同一模型版本下结果一致，不同驱动或硬件之间可能有细微差异。
+
 ## 附：一集的目录结构
 
 ```
