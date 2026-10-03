@@ -11,15 +11,15 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false   # 排队而不是取消：每次提交的检查结果都完整保留
 
 jobs:
   lint:
     name: 代码与脚本检查
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install ruff shellcheck-py
@@ -42,7 +42,7 @@ jobs:
     name: Windows PowerShell 5.1 语法检查
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 用 Windows PowerShell 5.1 解析（检验 UTF-8 BOM 与中文是否被正确读取）
         shell: powershell
         run: |
@@ -51,7 +51,7 @@ jobs:
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
             foreach ($e in $errors) { Write-Host "::error file=$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
-            Write-Host "$($f.Name): $($errors.Count) 个错误"
+            Write-Host "$($f.Name): $($errors.Count) parse error(s)"   # ASCII only: Windows PowerShell 5.1 reads this temp script without a BOM
           }
           exit $bad
 
@@ -63,8 +63,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: 安装 ffmpeg（Linux）
@@ -85,8 +85,8 @@ jobs:
     env:
       COMFY_TAG: v0.38.2
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
