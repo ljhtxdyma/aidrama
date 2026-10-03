@@ -71,7 +71,7 @@ def test_full_download(server, tmp_path):
 
 def test_resume_from_partial(server, tmp_path):
     dst = tmp_path / "m.safetensors"
-    part = dst.with_name(dst.name + f".{server.split('/')[2]}.part")
+    part = dl.part_path(dst, server + "/m.safetensors")
     part.write_bytes(BLOB[:300_000])
     dl.download(server + "/m.safetensors", dst, EXPECT_GB)
     assert dst.read_bytes() == BLOB and not part.exists()
@@ -89,11 +89,18 @@ def test_error_body_is_never_accepted(server, tmp_path):
 
 def test_416_with_wrong_total_is_rejected(server, tmp_path):
     dst = tmp_path / "m.safetensors"
-    part = dst.with_name(dst.name + f".{server.split('/')[2]}.part")
+    part = dl.part_path(dst, server + "/m.safetensors")
     part.write_bytes(b"x" * (len(BLOB) + 10))     # 比服务器上的文件还大：不能直接收下
     with pytest.raises(RuntimeError):
         dl.download(server + "/m.safetensors", dst, EXPECT_GB)
     assert not dst.exists() and not part.exists()
+
+
+def test_part_name_is_windows_safe():
+    from pathlib import Path
+
+    p = dl.part_path(Path("m.safetensors"), "http://127.0.0.1:8080/x/m.safetensors")
+    assert ":" not in p.name and p.name == "m.safetensors.127.0.0.1_8080.part"
 
 
 def test_unknown_group_is_an_error(monkeypatch, capsys):

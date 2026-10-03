@@ -45,6 +45,12 @@ def human(n: float) -> str:
     return f"{n:.1f}TB"
 
 
+def part_path(dst: Path, url: str) -> Path:
+    """临时文件：<文件名>.<来源主机>.part。主机名里的端口冒号等在 Windows 文件名里非法（NTFS 会当成数据流），统一换成 _。"""
+    host = re.sub(r"[^A-Za-z0-9.-]", "_", url.split("/")[2])
+    return dst.with_name(f"{dst.name}.{host}.part")
+
+
 def _too_small(size: int, expect_gb: float | None) -> bool:
     return bool(expect_gb) and size < expect_gb * 1e9 * 0.85
 
@@ -52,8 +58,7 @@ def _too_small(size: int, expect_gb: float | None) -> bool:
 def download(url: str, dst: Path, expect_gb: float | None) -> None:
     """下载到 <文件>.part，校验通过才改名。续传只在同一个来源内进行（.part 带来源主机名），
     返回网页/JSON/LFS 指针或体积明显不对时删掉 .part，绝不把坏文件当成模型。"""
-    host = url.split("/")[2]
-    part = dst.with_name(dst.name + f".{host}.part")
+    part = part_path(dst, url)
     headers = {"User-Agent": "aidrama-downloader/1.1"}
     if "huggingface.co" in url or "hf-mirror.com" in url:
         tok = os.environ.get("HF_TOKEN")
