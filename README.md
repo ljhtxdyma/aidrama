@@ -1,5 +1,7 @@
 # aidrama：本地 AI 真人短剧流水线（RTX 5090 32GB · 2026-10）
 
+[![CI](https://github.com/ljhtxdyma/aidrama/actions/workflows/ci.yml/badge.svg)](https://github.com/ljhtxdyma/aidrama/actions/workflows/ci.yml)
+
 从“一句话创意”到“带字幕、配乐、AI 标识的竖屏成片”，全部在一台 **RTX 5090 32GB + 128GB 内存** 的电脑上完成。
 所有画面、表演、对白都用本地开源权重模型生成，不依赖任何付费 API。
 
@@ -168,9 +170,10 @@ tests/              单元测试 + 全流程模拟测试
   - Linux 启动/停止脚本和 `doctor` 在真实 ComfyUI（CPU 模式）上跑通过，包括路径带空格的情况。
   - PowerShell 脚本过了 PowerShell 解析器检查，并检查了 UTF-8 BOM。
   - 全流程“模拟模式”（`--mock`）可以产出 1080×1920、-14 LUFS、带字幕、AI 标识和 AIGC 元数据的成片。
-  - 共 44 个自动化测试，其中 16 个是代码审查发现问题后补的回归测试。
+  - 共 45 个自动化测试，其中 17 个是代码审查发现问题后补的回归测试。
+  - 每次提交都由 GitHub Actions 自动检查：ruff、shellcheck、PowerShell 5.1/7 语法，Ubuntu 和 Windows 上的全部测试（含全流程模拟），以及用 ComfyUI v0.38 校验全部工作流。
 - **未验证**：真实模型推理的画质和速度，需要在你的 5090 上跑。第一次请先跑示例工程，并按 [docs/05-质检与返工.md](docs/05-质检与返工.md) 检查结果。
-- 安装脚本里的 Windows 部分只做过语法检查，没有在 Windows 机器上实际执行。遇到问题请看 [docs/06-常见问题.md](docs/06-常见问题.md)。
+- Windows 上，编排器、ffmpeg 合成和模型下载器已在 CI 的 Windows 环境里跑通；但安装脚本本身（装 ComfyUI、下载模型）只做过语法检查，没有在 Windows 机器上实际执行。遇到问题请看 [docs/06-常见问题.md](docs/06-常见问题.md)。
 
 ## 文档
 
@@ -183,6 +186,12 @@ tests/              单元测试 + 全流程模拟测试
 | [05-质检与返工](docs/05-质检与返工.md) | 平台硬伤清单、自动质检、审片、返工决策表 |
 | [06-常见问题](docs/06-常见问题.md) | 安装、显存、速度、画质、口型、音频问题排查 |
 | [07-合规与授权](docs/07-合规与授权.md) | 备案、AI 标识、各模型许可证、肖像和声音 |
+
+## 参与开发与版本
+
+- 分支、提交信息、测试、发布流程：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 每个版本改了什么：[CHANGELOG.md](CHANGELOG.md)。版本号是日历版本（如 `2026.10.0`），对应 Git tag `v2026.10.0`。
+- 升级到新版本：`git pull`，然后看 CHANGELOG 里是否要求重新下载模型或重跑安装脚本。
 
 ## 许可
 
